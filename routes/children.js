@@ -1,0 +1,10 @@
+const express = require('express');
+const router = express.Router();
+const { getAllChildren, getChild, createChild, updateChild } = require('../controllers/crudController');
+const { protect } = require('../middleware/auth');
+router.use(protect);
+router.get('/', getAllChildren);
+router.post('/', createChild);
+router.get('/:id', getChild);
+router.put('/:id', updateChild);
+module.exports = router;
