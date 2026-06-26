@@ -143,3 +143,120 @@ exports.getDailyReportsDashboard = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+// ═══════════════════════════════════════════════════════════════
+//  USER MANAGEMENT
+// ═══════════════════════════════════════════════════════════════
+
+// List all users (both Admin + ASHA)
+exports.getAllUsers = async (req, res) => {
+  const users = await User.find().select('-password').sort({ createdAt: -1 });
+  res.json({ success: true, data: users });
+};
+
+// Get pending registrations
+exports.getPendingRegistrations = async (req, res) => {
+  const users = await User.find({ approval_status: 'pending' }).select('-password');
+  res.json({ success: true, data: users });
+};
+
+// Approve or reject a self-registration
+exports.approveRegistration = async (req, res) => {
+  const { id } = req.params;
+  const { action } = req.body; // 'approve' | 'reject'
+
+  if (!['approve', 'reject'].includes(action))
+    return res.status(400).json({ success: false, message: 'action must be approve or reject' });
+
+  const update = action === 'approve'
+    ? { approval_status: 'approved', active: true }
+    : { approval_status: 'rejected', active: false };
+
+  const user = await User.findByIdAndUpdate(id, update, { new: true }).select('-password');
+  if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+  res.json({ success: true, data: user, message: `User ${action}d successfully` });
+};
+
+// Add Admin
+exports.createAdmin = async (req, res) => {
+  const { name, username, password, phone, email } = req.body;
+  const exists = await User.findOne({ username });
+  if (exists) return res.status(400).json({ success: false, message: 'Username already taken' });
+  const user = await User.create({ name, username, password, role: 'Admin', phone, email, approval_status: 'approved' });
+  res.status(201).json({ success: true, data: user });
+};
+
+// Edit user (name, phone, email, assigned_villages, address)
+exports.editUser = async (req, res) => {
+  const { id } = req.params;
+  const { name, phone, email, address, assigned_villages, gender, date_of_birth, age, emergency_contact } = req.body;
+  const user = await User.findByIdAndUpdate(
+    id,
+    { name, phone, email, address, assigned_villages, gender, date_of_birth, age, emergency_contact },
+    { new: true, runValidators: true }
+  ).select('-password');
+  if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+  res.json({ success: true, data: user });
+};
+
+// Deactivate / Reactivate user
+exports.toggleUserActive = async (req, res) => {
+  const { id } = req.params;
+  const user = await User.findById(id);
+  if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+  user.active = !user.active;
+  await user.save();
+  res.json({ success: true, data: user, message: `User ${user.active ? 'activated' : 'deactivated'}` });
+};
+
+// Reset password by admin
+exports.resetUserPassword = async (req, res) => {
+  const { id } = req.params;
+  const { new_password } = req.body;
+  if (!new_password || new_password.length < 6)
+    return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+  const user = await User.findById(id).select('+password');
+  if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+  user.password = new_password;
+  await user.save();
+  res.json({ success: true, message: 'Password reset successfully' });
+};
+
+// Delete user
+exports.deleteUser = async (req, res) => {
+  const { id } = req.params;
+  const user = await User.findByIdAndDelete(id);
+  if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+  res.json({ success: true, message: 'User deleted successfully' });
+};
+
+// Get pending change requests (username/password change from ASHA workers)
+exports.getChangeRequests = async (req, res) => {
+  const users = await User.find({ 'change_request.status': 'pending' }).select('-password');
+  res.json({ success: true, data: users });
+};
+
+// Approve / reject an ASHA change request
+exports.handleChangeRequest = async (req, res) => {
+  const { id } = req.params;
+  const { action } = req.body; // 'approve' | 'reject'
+
+  const user = await User.findById(id).select('+password');
+  if (!user || !user.change_request?.type)
+    return res.status(404).json({ success: false, message: 'No pending request found' });
+
+  if (action === 'approve') {
+    if (user.change_request.type === 'username') {
+      user.username = user.change_request.new_value.toLowerCase();
+    } else {
+      user.password = user.change_request.new_value;
+    }
+    user.change_request.status = 'approved';
+  } else {
+    user.change_request.status = 'rejected';
+  }
+
+  await user.save();
+  res.json({ success: true, message: `Change request ${action}d` });
+};
