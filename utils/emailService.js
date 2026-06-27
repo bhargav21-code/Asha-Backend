@@ -1,10 +1,15 @@
 const nodemailer = require('nodemailer');
 
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: 'smtp.gmail.com',
+  port: 587,
+  secure: false,
   auth: {
     user: process.env.GMAIL_USER,
     pass: process.env.GMAIL_PASS,
+  },
+  tls: {
+    rejectUnauthorized: false,
   },
 });
 
@@ -27,7 +32,7 @@ exports.sendOTPEmail = async (toEmail, otp, name) => {
             </span>
           </div>
           <p style="color: #6b7280; font-size: 14px;">
-            This OTP is valid for <strong>10 minutes</strong>. 
+            This OTP is valid for <strong>10 minutes</strong>.
             Do not share it with anyone.
           </p>
         </div>
