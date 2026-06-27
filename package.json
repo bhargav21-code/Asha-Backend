@@ -21,7 +21,8 @@
     "mongoose": "^8.0.3",
     "morgan": "^1.10.0",
     "node-cron": "^3.0.3",
-    "nodemailer": "^9.0.1"
+    "nodemailer": "^9.0.1",
+    "resend": "^6.16.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

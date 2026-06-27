@@ -1,21 +1,9 @@
-const nodemailer = require('nodemailer');
-
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 587,
-  secure: false,
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_PASS,
-  },
-  tls: {
-    rejectUnauthorized: false,
-  },
-});
+const { Resend } = require('resend');
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 exports.sendOTPEmail = async (toEmail, otp, name) => {
-  await transporter.sendMail({
-    from: `"ASHA Health System" <${process.env.GMAIL_USER}>`,
+  await resend.emails.send({
+    from: 'ASHA Health System <onboarding@resend.dev>',
     to: toEmail,
     subject: 'Password Reset OTP - ASHA Health System',
     html: `
