@@ -34,6 +34,9 @@ const userSchema = new mongoose.Schema({
     requested_at: { type: Date },
     status:       { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
   },
+
+  otp:         { type: String, select: false },
+  otp_expires: { type: Date,   select: false },
 }, { timestamps: true });
 
 userSchema.pre('save', async function (next) {
