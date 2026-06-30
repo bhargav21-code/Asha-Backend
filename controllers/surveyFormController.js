@@ -3,7 +3,7 @@ const SurveyForm = require('../models/SurveyForm');
 exports.getAll = async (req, res) => {
   try {
     const filter = { active: true };
-    if (req.user.role === 'ASHA') filter.asha_id = req.user._id;
+    // Survey forms are shared across all ASHA workers (no creator-based restriction)
     const { search } = req.query;
     if (search) filter.form_name = { $regex: search, $options: 'i' };
     const forms = await SurveyForm.find(filter).sort({ createdAt: -1 }).lean();
