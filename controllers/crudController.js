@@ -7,7 +7,8 @@ exports.getAllChildren = async (req, res) => {
   const filter = { active: true };
   if (village) filter.village = village;
   if (nutrition_status) filter.nutrition_status = nutrition_status;
-  if (req.user.role === 'ASHA' && req.user.assigned_villages?.length > 0) filter.village = { $in: req.user.assigned_villages };
+  // ASHA workers only see records they personally created; Admin sees all
+  if (req.user.role === 'ASHA') filter.asha_id = req.user._id;
 
   const skip = (page - 1) * limit;
   const [children, total] = await Promise.all([
@@ -73,7 +74,8 @@ exports.getAllFamilies = async (req, res) => {
   const { village, page = 1, limit = 20 } = req.query;
   const filter = { active: true };
   if (village) filter.village = village;
-  if (req.user.role === 'ASHA' && req.user.assigned_villages?.length > 0) filter.village = { $in: req.user.assigned_villages };
+  // ASHA workers only see records they personally created; Admin sees all
+  if (req.user.role === 'ASHA') filter.asha_id = req.user._id;
 
   const skip = (page - 1) * limit;
   const [families, total] = await Promise.all([

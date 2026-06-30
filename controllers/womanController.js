@@ -7,9 +7,9 @@ exports.getAll = async (req, res) => {
   if (high_risk !== undefined) filter.high_risk = high_risk === 'true';
   if (pregnancy_status !== undefined) filter.pregnancy_status = pregnancy_status === 'true';
 
-  // ASHA workers only see their villages (if any are assigned)
-  if (req.user.role === 'ASHA' && req.user.assigned_villages?.length > 0) {
-    filter.village = { $in: req.user.assigned_villages };
+  // ASHA workers only see records they personally created; Admin sees all
+  if (req.user.role === 'ASHA') {
+    filter.asha_id = req.user._id;
   }
 
   const skip = (page - 1) * limit;
