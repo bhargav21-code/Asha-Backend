@@ -4,7 +4,6 @@ const { Visit, DailyWorkReport } = require('../models/index');
 
 exports.getDashboardSummary = async (req, res) => {
   const ashaId = req.user._id;
-  const villages = req.user.assigned_villages;
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -25,10 +24,10 @@ exports.getDashboardSummary = async (req, res) => {
       'follow_up.required': true,
       'follow_up.next_date': { $lte: tomorrow },
     }).sort({ 'follow_up.next_date': 1 }).limit(10).lean(),
-    Woman.find({ village: { $in: villages }, high_risk: true, pregnancy_status: true })
+    Woman.find({ asha_id: ashaId, high_risk: true, pregnancy_status: true })
       .select('name village medical_metrics pregnancy_month').limit(10).lean(),
-    Woman.countDocuments({ village: { $in: villages }, pregnancy_status: true }),
-    Child.countDocuments({ village: { $in: villages }, nutrition_status: 'Severe Malnutrition' }),
+    Woman.countDocuments({ asha_id: ashaId, pregnancy_status: true }),
+    Child.countDocuments({ asha_id: ashaId, nutrition_status: 'Severe Malnutrition' }),
     Visit.find({ asha_id: ashaId }).sort({ date: -1 }).limit(5).lean(),
   ]);
 
