@@ -35,8 +35,10 @@ const userSchema = new mongoose.Schema({
     status:       { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
   },
 
-  otp:         { type: String, select: false },
-  otp_expires: { type: Date,   select: false },
+  otp:              { type: String, select: false },
+  otp_expires:      { type: Date, select: false },
+  otp_attempts:     { type: Number, default: 0, select: false },
+  otp_locked_until: { type: Date, select: false },
 }, { timestamps: true });
 
 userSchema.pre('save', async function (next) {
@@ -52,6 +54,10 @@ userSchema.methods.matchPassword = async function (enteredPassword) {
 userSchema.methods.toJSON = function () {
   const obj = this.toObject();
   delete obj.password;
+  delete obj.otp;
+  delete obj.otp_expires;
+  delete obj.otp_attempts;
+  delete obj.otp_locked_until;
   return obj;
 };
 
