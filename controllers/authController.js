@@ -1,11 +1,21 @@
 const jwt = require('jsonwebtoken');
-const { randomInt } = require('crypto');
+const { randomInt, createHmac, timingSafeEqual } = require('crypto');
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 
 const { sendOTPEmail } = require('../utils/emailService');
 
 const generateOTP = () => randomInt(100000, 1000000).toString();
+const hashOTP = (otp) => {
+  if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET is required to protect OTPs');
+  return createHmac('sha256', process.env.JWT_SECRET).update(String(otp)).digest('hex');
+};
+const otpMatches = (storedDigest, candidate) => {
+  if (typeof storedDigest !== 'string' || typeof candidate !== 'string') return false;
+  const stored = Buffer.from(storedDigest, 'hex');
+  const candidateDigest = Buffer.from(hashOTP(candidate), 'hex');
+  return stored.length === candidateDigest.length && timingSafeEqual(stored, candidateDigest);
+};
 
 const signToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRE || '7d' });
@@ -95,8 +105,10 @@ exports.requestChange = async (req, res) => {
   const { type, new_value } = req.body;
   if (!['username', 'password'].includes(type))
     return res.status(400).json({ success: false, message: 'Invalid change type' });
-  if (!new_value)
-    return res.status(400).json({ success: false, message: 'New value is required' });
+  if (typeof new_value !== 'string' || !new_value.trim())
+    return res.status(400).json({ success: false, message: 'New value must be a non-empty string' });
+  if (type === 'password' && new_value.length < 6)
+    return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
 
   if (type === 'username') {
     const exists = await User.findOne({ username: new_value.toLowerCase() });
@@ -132,7 +144,7 @@ exports.forgotPassword = async (req, res) => {
 
       const otp = generateOTP();
       const expires = new Date(Date.now() + 10 * 60 * 1000);
-      const update = { $set: { otp, otp_expires: expires }, $unset: { otp_locked_until: 1 } };
+      const update = { $set: { otp: hashOTP(otp), otp_expires: expires }, $unset: { otp_locked_until: 1 } };
       // Preserve failed guesses across OTP resends; reset only after the lockout expires.
       if (user.otp_locked_until && user.otp_locked_until <= now) update.$set.otp_attempts = 0;
       await User.updateOne({ _id: user._id }, update);
@@ -147,28 +159,40 @@ exports.forgotPassword = async (req, res) => {
 exports.verifyOTP = async (req, res) => {
   const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
   const { otp, new_password } = req.body;
+  if (typeof otp !== 'string' || typeof new_password !== 'string' || new_password.length < 6)
+    return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
 
-  const user = await User.findOne({ email }).select('+otp +otp_expires +otp_attempts +otp_locked_until +password');
+  const user = await User.findOne({ email }).select('+otp +otp_expires +otp_attempts +otp_locked_until');
   const now = new Date();
-  if (!user || !user.otp || !user.otp_expires || user.otp_expires < now ||
+  if (!user || !user.otp || !user.otp_expires || user.otp_expires <= now ||
       (user.otp_locked_until && user.otp_locked_until > now)) {
     return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
   }
 
-  if (typeof otp !== 'string' || user.otp !== otp) {
-    const attempt = await User.findOneAndUpdate(
-      {
-        _id: user._id,
-        otp: user.otp,
-        $or: [{ otp_attempts: { $lt: 5 } }, { otp_attempts: { $exists: false } }],
-      },
-      { $inc: { otp_attempts: 1 } },
-      { new: true }
-    ).select('+otp_attempts');
+  // Reserve one of five attempts atomically before comparing the supplied code.
+  // This prevents concurrent requests and distributed IPs from bypassing the account limit.
+  const reservation = await User.findOneAndUpdate(
+    {
+      _id: user._id,
+      otp: user.otp,
+      otp_expires: { $gt: now },
+      $and: [
+        { $or: [{ otp_locked_until: { $exists: false } }, { otp_locked_until: { $lte: now } }] },
+        { $or: [{ otp_attempts: { $lt: 5 } }, { otp_attempts: { $exists: false } }] },
+      ],
+    },
+    { $inc: { otp_attempts: 1 } },
+    { new: true }
+  ).select('+otp +otp_attempts +otp_expires');
 
-    if (!attempt || attempt.otp_attempts >= 5) {
+  if (!reservation) {
+    return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
+  }
+
+  if (!otpMatches(reservation.otp, otp)) {
+    if (reservation.otp_attempts >= 5) {
       await User.updateOne(
-        { _id: user._id, otp: user.otp },
+        { _id: reservation._id, otp: reservation.otp },
         {
           $unset: { otp: 1, otp_expires: 1 },
           $set: { otp_locked_until: new Date(Date.now() + 15 * 60 * 1000) },
@@ -178,15 +202,25 @@ exports.verifyOTP = async (req, res) => {
     return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
   }
 
-  if (!new_password || new_password.length < 6)
-    return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+  // Consume the OTP and update the password in one conditional write.
+  // A concurrent request cannot reuse a code already consumed or invalidated.
+  const passwordHash = await bcrypt.hash(new_password, 12);
+  const result = await User.updateOne(
+    {
+      _id: reservation._id,
+      otp: reservation.otp,
+      otp_expires: { $gt: new Date() },
+      otp_attempts: { $lte: 5 },
+      $or: [{ otp_locked_until: { $exists: false } }, { otp_locked_until: { $lte: new Date() } }],
+    },
+    {
+      $set: { password: passwordHash, otp_attempts: 0 },
+      $unset: { otp: 1, otp_expires: 1, otp_locked_until: 1 },
+    }
+  );
 
-  user.password = new_password;
-  user.otp = undefined;
-  user.otp_expires = undefined;
-  user.otp_attempts = 0;
-  user.otp_locked_until = undefined;
-  await user.save();
+  if (!result.matchedCount)
+    return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
 
   res.json({ success: true, message: 'Password reset successfully! You can now login.' });
 };
