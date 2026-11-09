@@ -13,7 +13,7 @@ exports.getAll = async (req, res) => {
 
 exports.getOne = async (req, res) => {
   try {
-    const record = await Anganwadi.findById(req.params.id).lean({ virtuals: true });
+    const record = await Anganwadi.findOne(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }).lean({ virtuals: true });
     if (!record) return res.status(404).json({ success: false, message: 'Not found' });
     res.json({ success: true, data: record });
   } catch (err) {
@@ -32,7 +32,7 @@ exports.create = async (req, res) => {
 
 exports.update = async (req, res) => {
   try {
-    const record = await Anganwadi.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    const record = await Anganwadi.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, Object.fromEntries(Object.entries(req.body).filter(([key]) => key !== 'asha_id')), { new: true, runValidators: true });
     if (!record) return res.status(404).json({ success: false, message: 'Not found' });
     res.json({ success: true, data: record });
   } catch (err) {
@@ -42,7 +42,7 @@ exports.update = async (req, res) => {
 
 exports.addChild = async (req, res) => {
   try {
-    const record = await Anganwadi.findById(req.params.id);
+    const record = await Anganwadi.findOne(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id });
     if (!record) return res.status(404).json({ success: false, message: 'Not found' });
     record.children.push(req.body);
     await record.save();
@@ -68,7 +68,7 @@ exports.markAttendance = async (req, res) => {
 
 exports.remove = async (req, res) => {
   try {
-    await Anganwadi.findByIdAndUpdate(req.params.id, { active: false });
+    await Anganwadi.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, { active: false });
     res.json({ success: true, message: 'Deactivated' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
