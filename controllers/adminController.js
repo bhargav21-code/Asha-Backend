@@ -2,6 +2,7 @@ const Woman = require('../models/Woman');
 const Child = require('../models/Child');
 const { Family, Visit, DailyWorkReport } = require('../models/index');
 const User = require('../models/User');
+const bcrypt = require('bcryptjs');
 
 exports.getMetrics = async (req, res) => {
   const [
@@ -246,12 +247,23 @@ exports.handleChangeRequest = async (req, res) => {
   if (!user || !user.change_request?.type)
     return res.status(404).json({ success: false, message: 'No pending request found' });
 
+  if (!['approve', 'reject'].includes(action))
+    return res.status(400).json({ success: false, message: 'action must be approve or reject' });
+
+  if (action === 'approve' && user.change_request.type === 'password') {
+    const requestedValue = user.change_request.new_value;
+    const passwordHash = /^\\$2[aby]\\$\\d{2}\\$/.test(requestedValue)
+      ? requestedValue
+      : await bcrypt.hash(requestedValue, 12);
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { password: passwordHash, 'change_request.status': 'approved' }, $unset: { 'change_request.new_value': 1 } }
+    );
+    return res.json({ success: true, message: 'Change request approved' });
+  }
+
   if (action === 'approve') {
-    if (user.change_request.type === 'username') {
-      user.username = user.change_request.new_value.toLowerCase();
-    } else {
-      user.password = user.change_request.new_value;
-    }
+    user.username = user.change_request.new_value.toLowerCase();
     user.change_request.status = 'approved';
   } else {
     user.change_request.status = 'rejected';
