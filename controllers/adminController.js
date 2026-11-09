@@ -241,34 +241,36 @@ exports.getChangeRequests = async (req, res) => {
 // Approve / reject an ASHA change request
 exports.handleChangeRequest = async (req, res) => {
   const { id } = req.params;
-  const { action } = req.body; // 'approve' | 'reject'
-
-  const user = await User.findById(id).select('+password');
-  if (!user || !user.change_request?.type)
-    return res.status(404).json({ success: false, message: 'No pending request found' });
+  const { action } = req.body;
 
   if (!['approve', 'reject'].includes(action))
     return res.status(400).json({ success: false, message: 'action must be approve or reject' });
 
-  if (action === 'approve' && user.change_request.type === 'password') {
-    const requestedValue = user.change_request.new_value;
+  const user = await User.findById(id).select('+password');
+  const request = user?.change_request;
+  if (!user || request?.status !== 'pending' || !request.type || !request.new_value)
+    return res.status(404).json({ success: false, message: 'No pending request found' });
+
+  const filter = { _id: user._id, 'change_request.status': 'pending' };
+
+  if (action === 'approve' && request.type === 'password') {
+    const requestedValue = request.new_value;
     const passwordHash = /^\$2[aby]\$\d{2}\$/.test(requestedValue)
       ? requestedValue
       : await bcrypt.hash(requestedValue, 12);
-    await User.updateOne(
-      { _id: user._id },
+    const result = await User.updateOne(
+      filter,
       { $set: { password: passwordHash, 'change_request.status': 'approved' }, $unset: { 'change_request.new_value': 1 } }
     );
+    if (!result.matchedCount) return res.status(409).json({ success: false, message: 'Change request is no longer pending' });
     return res.json({ success: true, message: 'Change request approved' });
   }
 
-  if (action === 'approve') {
-    user.username = user.change_request.new_value.toLowerCase();
-    user.change_request.status = 'approved';
-  } else {
-    user.change_request.status = 'rejected';
-  }
+  const update = action === 'approve'
+    ? { $set: { username: request.new_value.toLowerCase(), 'change_request.status': 'approved' }, $unset: { 'change_request.new_value': 1 } }
+    : { $set: { 'change_request.status': 'rejected' }, $unset: { 'change_request.new_value': 1 } };
 
-  await user.save();
+  const result = await User.updateOne(filter, update);
+  if (!result.matchedCount) return res.status(409).json({ success: false, message: 'Change request is no longer pending' });
   res.json({ success: true, message: `Change request ${action}d` });
 };
