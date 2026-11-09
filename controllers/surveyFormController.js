@@ -34,7 +34,7 @@ exports.create = async (req, res) => {
 
 exports.update = async (req, res) => {
   try {
-    const form = await SurveyForm.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    const form = await SurveyForm.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, Object.fromEntries(Object.entries(req.body).filter(([key]) => key !== 'asha_id')), { new: true, runValidators: true });
     if (!form) return res.status(404).json({ success: false, message: 'Not found' });
     res.json({ success: true, data: form });
   } catch (err) {
@@ -44,7 +44,7 @@ exports.update = async (req, res) => {
 
 exports.remove = async (req, res) => {
   try {
-    await SurveyForm.findByIdAndUpdate(req.params.id, { active: false });
+    await SurveyForm.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, { active: false });
     res.json({ success: true, message: 'Deleted' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
