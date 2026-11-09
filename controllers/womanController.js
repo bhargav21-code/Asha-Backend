@@ -1,4 +1,14 @@
 const Woman = require('../models/Woman');
+const safeUpdate = require('../utils/safeUpdate');
+
+const womanUpdateFields = {
+  name: true, age: true, mobile: true, address: true, village: true, taluka: true, district: true,
+  pregnancy_status: true, pregnancy_month: true, edd: true, lmp: true, high_risk: true,
+  medical_metrics: { weight: true, bp_sys: true, bp_dia: true, hemoglobin: true, diabetes: true, thyroid: true },
+  gov_schemes: { mamta_card: true, jsy: true },
+  checkups: { last_date: true, next_date: true },
+  active: true,
+};
 
 exports.getAll = async (req, res) => {
   const { village, high_risk, pregnancy_status, page = 1, limit = 20 } = req.query;
@@ -33,12 +43,15 @@ exports.create = async (req, res) => {
 };
 
 exports.update = async (req, res) => {
-  const woman = await Woman.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, Object.fromEntries(Object.entries(req.body).filter(([key]) => key !== 'asha_id')), { new: true, runValidators: true });
+  const update = safeUpdate(req.body, womanUpdateFields);
+  if (!update) return res.status(400).json({ success: false, message: 'Invalid update fields' });
+  const woman = await Woman.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, update, { new: true, runValidators: true });
   if (!woman) return res.status(404).json({ success: false, message: 'Record not found' });
   res.json({ success: true, data: woman });
 };
 
 exports.remove = async (req, res) => {
-  await Woman.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, { active: false });
+  const woman = await Woman.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, { active: false });
+  if (!woman) return res.status(404).json({ success: false, message: 'Record not found' });
   res.json({ success: true, message: 'Record deactivated' });
 };
