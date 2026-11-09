@@ -12,6 +12,9 @@ exports.protect = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = await User.findById(decoded.id).select('-password');
     if (!req.user) return res.status(401).json({ success: false, message: 'User not found' });
+    if (req.user.active === false || ['pending', 'rejected'].includes(req.user.approval_status)) {
+      return res.status(401).json({ success: false, message: 'Account is inactive or not approved' });
+    }
     next();
   } catch {
     return res.status(401).json({ success: false, message: 'Invalid token' });
