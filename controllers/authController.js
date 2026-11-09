@@ -126,15 +126,16 @@ exports.forgotPassword = async (req, res) => {
 
   setImmediate(async () => {
     try {
-      const user = await User.findOne({ email }).select('+otp_locked_until');
-      if (!user || (user.otp_locked_until && user.otp_locked_until > new Date())) return;
+      const user = await User.findOne({ email }).select('+otp_locked_until +otp_attempts');
+      const now = new Date();
+      if (!user || (user.otp_locked_until && user.otp_locked_until > now)) return;
 
       const otp = generateOTP();
       const expires = new Date(Date.now() + 10 * 60 * 1000);
-      await User.updateOne(
-        { _id: user._id },
-        { $set: { otp, otp_expires: expires, otp_attempts: 0 }, $unset: { otp_locked_until: 1 } }
-      );
+      const update = { $set: { otp, otp_expires: expires }, $unset: { otp_locked_until: 1 } };
+      // Preserve failed guesses across OTP resends; reset only after the lockout expires.
+      if (user.otp_locked_until && user.otp_locked_until <= now) update.$set.otp_attempts = 0;
+      await User.updateOne({ _id: user._id }, update);
       await sendOTPEmail(email, otp, user.name);
     } catch (err) {
       console.error('Forgot-password OTP processing failed:', err);
