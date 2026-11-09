@@ -1,5 +1,23 @@
 const Child = require('../models/Child');
 const { Family, Visit, DailyWorkReport } = require('../models/index');
+const safeUpdate = require('../utils/safeUpdate');
+
+const childUpdateFields = {
+  name: true, dob: true, gender: true, village: true, taluka: true, district: true,
+  mother_id: true, family_id: true, growth_metrics: {
+    weight: true, height: true, head_circumference: true, muac: true,
+  }, vaccinations: {
+    bcg: true, opv0: true, hepB: true, opv1: true, penta1: true, mr: true, vitamin_a: true,
+  }, nutrition_status: true, active: true,
+};
+const familyUpdateFields = {
+  head_name: true, mobile: true, village: true, taluka: true, district: true, address: true,
+  conditions: { toilet: true, water_source: true, electricity: true, lpg: true },
+  members: [{
+    _id: true, name: true, age: true, gender: true, relation: true,
+    conditions: { bp: true, diabetes: true, tb: true, anemia: true },
+  }],
+};
 
 // ─── CHILDREN ────────────────────────────────────────────
 exports.getAllChildren = async (req, res) => {
@@ -30,7 +48,9 @@ exports.createChild = async (req, res) => {
 };
 
 exports.updateChild = async (req, res) => {
-  const child = await Child.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, Object.fromEntries(Object.entries(req.body).filter(([key]) => key !== 'asha_id')), { new: true, runValidators: true });
+  const update = safeUpdate(req.body, childUpdateFields);
+  if (!update) return res.status(400).json({ success: false, message: 'Invalid update fields' });
+  const child = await Child.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, update, { new: true, runValidators: true });
   if (!child) return res.status(404).json({ success: false, message: 'Not found' });
   res.json({ success: true, data: child });
 };
@@ -97,7 +117,9 @@ exports.createFamily = async (req, res) => {
 };
 
 exports.updateFamily = async (req, res) => {
-  const family = await Family.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, Object.fromEntries(Object.entries(req.body).filter(([key]) => key !== 'asha_id')), { new: true });
+  const update = safeUpdate(req.body, familyUpdateFields);
+  if (!update) return res.status(400).json({ success: false, message: 'Invalid update fields' });
+  const family = await Family.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, update, { new: true, runValidators: true });
   if (!family) return res.status(404).json({ success: false, message: 'Not found' });
   res.json({ success: true, data: family });
 };
