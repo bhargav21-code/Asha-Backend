@@ -252,7 +252,7 @@ exports.handleChangeRequest = async (req, res) => {
 
   if (action === 'approve' && user.change_request.type === 'password') {
     const requestedValue = user.change_request.new_value;
-    const passwordHash = /^\\$2[aby]\\$\\d{2}\\$/.test(requestedValue)
+    const passwordHash = /^\$2[aby]\$\d{2}\$/.test(requestedValue)
       ? requestedValue
       : await bcrypt.hash(requestedValue, 12);
     await User.updateOne(
