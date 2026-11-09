@@ -1,4 +1,17 @@
 const FollowUp = require('../models/FollowUp');
+const safeUpdate = require('../utils/safeUpdate');
+
+const followUpUpdateFields = {
+  patient_name: true, age: true, gender: true, village: true, mobile_number: true,
+  disease_name: true, disease_category: true, description: true, symptoms: true,
+  current_health_status: true, last_visit_date: true, next_followup_date: true,
+  medicine_prescribed: true, treatment_notes: true, referral_information: true,
+  hospital_visit_status: true, status: true, priority: true, active: true,
+  visit_history: [{
+    _id: true, visit_date: true, visit_type: true, health_assessment: true,
+    observations: true, actions_taken: true, referral_details: true, follow_up_required: true,
+  }],
+};
 
 exports.getAll = async (req, res) => {
   try {
@@ -38,7 +51,9 @@ exports.create = async (req, res) => {
 
 exports.update = async (req, res) => {
   try {
-    const record = await FollowUp.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, Object.fromEntries(Object.entries(req.body).filter(([key]) => key !== 'asha_id')), { new: true, runValidators: true });
+    const update = safeUpdate(req.body, followUpUpdateFields);
+    if (!update) return res.status(400).json({ success: false, message: 'Invalid update fields' });
+    const record = await FollowUp.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, update, { new: true, runValidators: true });
     if (!record) return res.status(404).json({ success: false, message: 'Not found' });
     res.json({ success: true, data: record });
   } catch (err) {
@@ -83,7 +98,8 @@ exports.getCalendar = async (req, res) => {
 
 exports.remove = async (req, res) => {
   try {
-    await FollowUp.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, { active: false });
+    const record = await FollowUp.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, { active: false });
+    if (!record) return res.status(404).json({ success: false, message: 'Not found' });
     res.json({ success: true, message: 'Deleted' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
