@@ -22,7 +22,7 @@ exports.getAll = async (req, res) => {
 };
 
 exports.getOne = async (req, res) => {
-  const woman = await Woman.findById(req.params.id).lean();
+  const woman = await Woman.findOne(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }).lean();
   if (!woman) return res.status(404).json({ success: false, message: 'Record not found' });
   res.json({ success: true, data: woman });
 };
@@ -33,12 +33,12 @@ exports.create = async (req, res) => {
 };
 
 exports.update = async (req, res) => {
-  const woman = await Woman.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+  const woman = await Woman.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, Object.fromEntries(Object.entries(req.body).filter(([key]) => key !== 'asha_id')), { new: true, runValidators: true });
   if (!woman) return res.status(404).json({ success: false, message: 'Record not found' });
   res.json({ success: true, data: woman });
 };
 
 exports.remove = async (req, res) => {
-  await Woman.findByIdAndUpdate(req.params.id, { active: false });
+  await Woman.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, { active: false });
   res.json({ success: true, message: 'Record deactivated' });
 };
