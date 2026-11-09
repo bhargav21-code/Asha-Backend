@@ -19,7 +19,7 @@ exports.getAllChildren = async (req, res) => {
 };
 
 exports.getChild = async (req, res) => {
-  const child = await Child.findById(req.params.id).lean();
+  const child = await Child.findOne(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }).lean();
   if (!child) return res.status(404).json({ success: false, message: 'Not found' });
   res.json({ success: true, data: child });
 };
@@ -30,7 +30,7 @@ exports.createChild = async (req, res) => {
 };
 
 exports.updateChild = async (req, res) => {
-  const child = await Child.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+  const child = await Child.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, Object.fromEntries(Object.entries(req.body).filter(([key]) => key !== 'asha_id')), { new: true, runValidators: true });
   if (!child) return res.status(404).json({ success: false, message: 'Not found' });
   res.json({ success: true, data: child });
 };
@@ -64,7 +64,7 @@ exports.createVisit = async (req, res) => {
 };
 
 exports.getVisit = async (req, res) => {
-  const visit = await Visit.findById(req.params.id).populate('asha_id', 'name').lean();
+  const visit = await Visit.findOne(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }).populate('asha_id', 'name').lean();
   if (!visit) return res.status(404).json({ success: false, message: 'Not found' });
   res.json({ success: true, data: visit });
 };
@@ -86,7 +86,7 @@ exports.getAllFamilies = async (req, res) => {
 };
 
 exports.getFamily = async (req, res) => {
-  const family = await Family.findById(req.params.id).lean();
+  const family = await Family.findOne(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }).lean();
   if (!family) return res.status(404).json({ success: false, message: 'Not found' });
   res.json({ success: true, data: family });
 };
@@ -97,7 +97,7 @@ exports.createFamily = async (req, res) => {
 };
 
 exports.updateFamily = async (req, res) => {
-  const family = await Family.findByIdAndUpdate(req.params.id, req.body, { new: true });
+  const family = await Family.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, Object.fromEntries(Object.entries(req.body).filter(([key]) => key !== 'asha_id')), { new: true });
   if (!family) return res.status(404).json({ success: false, message: 'Not found' });
   res.json({ success: true, data: family });
 };
