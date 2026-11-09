@@ -1,9 +1,11 @@
 const jwt = require('jsonwebtoken');
+const { randomInt } = require('crypto');
+const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 
 const { sendOTPEmail } = require('../utils/emailService');
 
-const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
+const generateOTP = () => randomInt(100000, 1000000).toString();
 
 const signToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRE || '7d' });
@@ -104,7 +106,7 @@ exports.requestChange = async (req, res) => {
   await User.findByIdAndUpdate(req.user._id, {
     change_request: {
       type,
-      new_value,
+      new_value: type === 'password' ? await bcrypt.hash(new_value, 12) : new_value,
       requested_at: new Date(),
       status: 'pending',
     },
@@ -121,7 +123,7 @@ exports.forgotPassword = async (req, res) => {
 
   const user = await User.findOne({ email });
   if (!user)
-    return res.status(404).json({ success: false, message: 'No account found with this email' });
+    return res.json({ success: true, message: 'If an account exists for that email, an OTP will be sent.' });
 
   const otp = generateOTP();
   const expires = new Date(Date.now() + 10 * 60 * 1000);
@@ -142,10 +144,10 @@ exports.verifyOTP = async (req, res) => {
 
   const user = await User.findOne({ email }).select('+otp +otp_expires +password');
   if (!user)
-    return res.status(404).json({ success: false, message: 'No account found' });
+    return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
 
   if (!user.otp || user.otp !== otp)
-    return res.status(400).json({ success: false, message: 'Invalid OTP' });
+    return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
 
   if (user.otp_expires < new Date())
     return res.status(400).json({ success: false, message: 'OTP expired. Request a new one.' });
