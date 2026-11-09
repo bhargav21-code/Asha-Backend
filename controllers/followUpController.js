@@ -1,16 +1,17 @@
 const FollowUp = require('../models/FollowUp');
 const safeUpdate = require('../utils/safeUpdate');
 
+const visitHistoryFields = {
+  visit_date: true, visit_type: true, health_assessment: true,
+  observations: true, actions_taken: true, referral_details: true, follow_up_required: true,
+};
 const followUpUpdateFields = {
   patient_name: true, age: true, gender: true, village: true, mobile_number: true,
   disease_name: true, disease_category: true, description: true, symptoms: true,
   current_health_status: true, last_visit_date: true, next_followup_date: true,
   medicine_prescribed: true, treatment_notes: true, referral_information: true,
   hospital_visit_status: true, status: true, priority: true, active: true,
-  visit_history: [{
-    _id: true, visit_date: true, visit_type: true, health_assessment: true,
-    observations: true, actions_taken: true, referral_details: true, follow_up_required: true,
-  }],
+  visit_history: [{ _id: true, ...visitHistoryFields }],
 };
 
 exports.getAll = async (req, res) => {
@@ -65,8 +66,10 @@ exports.addVisitHistory = async (req, res) => {
   try {
     const record = await FollowUp.findOne(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id });
     if (!record) return res.status(404).json({ success: false, message: 'Not found' });
-    record.visit_history.push(req.body);
-    record.last_visit_date = req.body.visit_date || new Date();
+    const visit = safeUpdate(req.body, visitHistoryFields);
+    if (!visit) return res.status(400).json({ success: false, message: 'Invalid visit fields' });
+    record.visit_history.push(visit);
+    record.last_visit_date = visit.visit_date || new Date();
     await record.save();
     res.status(201).json({ success: true, data: record });
   } catch (err) {
