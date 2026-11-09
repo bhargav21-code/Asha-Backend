@@ -19,7 +19,7 @@ exports.getAll = async (req, res) => {
 
 exports.getOne = async (req, res) => {
   try {
-    const record = await FollowUp.findById(req.params.id).lean();
+    const record = await FollowUp.findOne(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }).lean();
     if (!record) return res.status(404).json({ success: false, message: 'Not found' });
     res.json({ success: true, data: record });
   } catch (err) {
@@ -38,7 +38,7 @@ exports.create = async (req, res) => {
 
 exports.update = async (req, res) => {
   try {
-    const record = await FollowUp.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    const record = await FollowUp.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, Object.fromEntries(Object.entries(req.body).filter(([key]) => key !== 'asha_id')), { new: true, runValidators: true });
     if (!record) return res.status(404).json({ success: false, message: 'Not found' });
     res.json({ success: true, data: record });
   } catch (err) {
@@ -48,7 +48,7 @@ exports.update = async (req, res) => {
 
 exports.addVisitHistory = async (req, res) => {
   try {
-    const record = await FollowUp.findById(req.params.id);
+    const record = await FollowUp.findOne(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id });
     if (!record) return res.status(404).json({ success: false, message: 'Not found' });
     record.visit_history.push(req.body);
     record.last_visit_date = req.body.visit_date || new Date();
@@ -83,7 +83,7 @@ exports.getCalendar = async (req, res) => {
 
 exports.remove = async (req, res) => {
   try {
-    await FollowUp.findByIdAndUpdate(req.params.id, { active: false });
+    await FollowUp.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, { active: false });
     res.json({ success: true, message: 'Deleted' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
