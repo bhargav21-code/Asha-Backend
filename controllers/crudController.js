@@ -11,7 +11,7 @@ const childUpdateFields = {
   }, nutrition_status: true, active: true,
 };
 const familyUpdateFields = {
-  head_name: true, mobile: true, village: true, taluka: true, district: true, address: true,
+  head_name: true, mobile: true, village: true, taluka: true, district: true, address: true, active: true,
   conditions: { toilet: true, water_source: true, electricity: true, lpg: true },
   members: [{
     _id: true, name: true, age: true, gender: true, relation: true,
