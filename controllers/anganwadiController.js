@@ -1,6 +1,10 @@
 const Anganwadi = require('../models/Anganwadi');
 const safeUpdate = require('../utils/safeUpdate');
 
+const anganwadiChildFields = {
+  child_name: true, age: true, gender: true, weight: true, height: true,
+  nutrition_status: true, vaccination_status: true, present_today: true,
+};
 const anganwadiUpdateFields = {
   district: true, taluka: true, village: true, anganwadi_name: true,
   worker_name: true, contact_number: true, active: true,
@@ -8,10 +12,7 @@ const anganwadiUpdateFields = {
     drinking_water: true, toilet: true, electricity: true,
     nutrition_stock: true, building_condition: true,
   },
-  children: [{
-    _id: true, child_name: true, age: true, gender: true, weight: true,
-    height: true, nutrition_status: true, vaccination_status: true, present_today: true,
-  }],
+  children: [{ _id: true, ...anganwadiChildFields }],
 };
 
 exports.getAll = async (req, res) => {
@@ -60,7 +61,9 @@ exports.addChild = async (req, res) => {
   try {
     const record = await Anganwadi.findOne(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id });
     if (!record) return res.status(404).json({ success: false, message: 'Not found' });
-    record.children.push(req.body);
+    const child = safeUpdate(req.body, anganwadiChildFields);
+    if (!child) return res.status(400).json({ success: false, message: 'Invalid child fields' });
+    record.children.push(child);
     await record.save();
     res.status(201).json({ success: true, data: record });
   } catch (err) {
