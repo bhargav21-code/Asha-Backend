@@ -117,40 +117,65 @@ exports.requestChange = async (req, res) => {
 
 // ─── Forgot Password - Send OTP to email ─────────────────────
 exports.forgotPassword = async (req, res) => {
-  const { email } = req.body;
+  const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
   if (!email)
     return res.status(400).json({ success: false, message: 'Email is required' });
 
-  const user = await User.findOne({ email });
-  if (!user)
-    return res.json({ success: true, message: 'If an account exists for that email, an OTP will be sent.' });
+  // Respond before account lookup or email delivery to avoid an account-existence timing signal.
+  res.json({ success: true, message: 'If an account exists for that email, an OTP will be sent.' });
 
-  const otp = generateOTP();
-  const expires = new Date(Date.now() + 10 * 60 * 1000);
+  setImmediate(async () => {
+    try {
+      const user = await User.findOne({ email }).select('+otp_locked_until');
+      if (!user || (user.otp_locked_until && user.otp_locked_until > new Date())) return;
 
-  await User.findByIdAndUpdate(user._id, {
-    otp,
-    otp_expires: expires,
+      const otp = generateOTP();
+      const expires = new Date(Date.now() + 10 * 60 * 1000);
+      await User.updateOne(
+        { _id: user._id },
+        { $set: { otp, otp_expires: expires, otp_attempts: 0 }, $unset: { otp_locked_until: 1 } }
+      );
+      await sendOTPEmail(email, otp, user.name);
+    } catch (err) {
+      console.error('Forgot-password OTP processing failed:', err);
+    }
   });
-
-  await sendOTPEmail(email, otp, user.name);
-
-  res.json({ success: true, message: 'OTP sent to your email address' });
 };
 
 // ─── Verify OTP and reset password ───────────────────────────
 exports.verifyOTP = async (req, res) => {
-  const { email, otp, new_password } = req.body;
+  const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  const { otp, new_password } = req.body;
 
-  const user = await User.findOne({ email }).select('+otp +otp_expires +password');
-  if (!user)
+  const user = await User.findOne({ email }).select('+otp +otp_expires +otp_attempts +otp_locked_until +password');
+  const now = new Date();
+  if (!user || !user.otp || !user.otp_expires || user.otp_expires < now ||
+      (user.otp_locked_until && user.otp_locked_until > now)) {
     return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
+  }
 
-  if (!user.otp || user.otp !== otp)
+  if (typeof otp !== 'string' || user.otp !== otp) {
+    const attempt = await User.findOneAndUpdate(
+      {
+        _id: user._id,
+        otp: user.otp,
+        $or: [{ otp_attempts: { $lt: 5 } }, { otp_attempts: { $exists: false } }],
+      },
+      { $inc: { otp_attempts: 1 } },
+      { new: true }
+    ).select('+otp_attempts');
+
+    if (!attempt || attempt.otp_attempts >= 5) {
+      await User.updateOne(
+        { _id: user._id, otp: user.otp },
+        {
+          $unset: { otp: 1, otp_expires: 1 },
+          $set: { otp_locked_until: new Date(Date.now() + 15 * 60 * 1000) },
+        }
+      );
+    }
     return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
-
-  if (user.otp_expires < new Date())
-    return res.status(400).json({ success: false, message: 'OTP expired. Request a new one.' });
+  }
 
   if (!new_password || new_password.length < 6)
     return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
@@ -158,6 +183,8 @@ exports.verifyOTP = async (req, res) => {
   user.password = new_password;
   user.otp = undefined;
   user.otp_expires = undefined;
+  user.otp_attempts = 0;
+  user.otp_locked_until = undefined;
   await user.save();
 
   res.json({ success: true, message: 'Password reset successfully! You can now login.' });
