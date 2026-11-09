@@ -192,7 +192,7 @@ exports.verifyOTP = async (req, res) => {
   if (!otpMatches(reservation.otp, otp)) {
     if (reservation.otp_attempts >= 5) {
       await User.updateOne(
-        { _id: reservation._id, otp: reservation.otp },
+        { _id: reservation._id, otp_attempts: { $gte: 5 } },
         {
           $unset: { otp: 1, otp_expires: 1 },
           $set: { otp_locked_until: new Date(Date.now() + 15 * 60 * 1000) },
