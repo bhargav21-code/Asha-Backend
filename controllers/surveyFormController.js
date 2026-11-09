@@ -1,4 +1,9 @@
 const SurveyForm = require('../models/SurveyForm');
+const safeUpdate = require('../utils/safeUpdate');
+
+const surveyFormUpdateFields = {
+  form_name: true, google_link: true, description: true, active: true,
+};
 
 exports.getAll = async (req, res) => {
   try {
@@ -34,7 +39,9 @@ exports.create = async (req, res) => {
 
 exports.update = async (req, res) => {
   try {
-    const form = await SurveyForm.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, Object.fromEntries(Object.entries(req.body).filter(([key]) => key !== 'asha_id')), { new: true, runValidators: true });
+    const update = safeUpdate(req.body, surveyFormUpdateFields);
+    if (!update) return res.status(400).json({ success: false, message: 'Invalid update fields' });
+    const form = await SurveyForm.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, update, { new: true, runValidators: true });
     if (!form) return res.status(404).json({ success: false, message: 'Not found' });
     res.json({ success: true, data: form });
   } catch (err) {
@@ -44,7 +51,8 @@ exports.update = async (req, res) => {
 
 exports.remove = async (req, res) => {
   try {
-    await SurveyForm.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, { active: false });
+    const form = await SurveyForm.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, { active: false });
+    if (!form) return res.status(404).json({ success: false, message: 'Not found' });
     res.json({ success: true, message: 'Deleted' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
