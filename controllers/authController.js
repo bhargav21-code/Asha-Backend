@@ -229,7 +229,6 @@ exports.verifyOTP = async (req, res) => {
     {
       _id: reservation._id,
       otp: reservation.otp,
-      otp_expires: { $gt: new Date() },
       otp_attempts: { $lte: 5 },
       $or: [{ otp_locked_until: { $exists: false } }, { otp_locked_until: { $lte: new Date() } }],
     },
