@@ -2,7 +2,6 @@ const Woman = require('../models/Woman');
 const Child = require('../models/Child');
 const { Family, Visit, DailyWorkReport } = require('../models/index');
 const User = require('../models/User');
-const bcrypt = require('bcryptjs');
 
 const redactPasswordChangeValue = (user) => {
   if (user?.change_request?.type !== 'password') return user;
