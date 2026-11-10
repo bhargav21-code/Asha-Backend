@@ -270,7 +270,14 @@ exports.handleChangeRequest = async (req, res) => {
     ? { $set: { username: request.new_value.toLowerCase(), 'change_request.status': 'approved' }, $unset: { 'change_request.new_value': 1 } }
     : { $set: { 'change_request.status': 'rejected' }, $unset: { 'change_request.new_value': 1 } };
 
-  const result = await User.updateOne(filter, update);
+  let result;
+  try {
+    result = await User.updateOne(filter, update);
+  } catch (err) {
+    if (err.code === 11000)
+      return res.status(409).json({ success: false, message: 'Username is already taken' });
+    throw err;
+  }
   if (!result.matchedCount) return res.status(409).json({ success: false, message: 'Change request is no longer pending' });
   res.json({ success: true, message: `Change request ${action}d` });
 };
