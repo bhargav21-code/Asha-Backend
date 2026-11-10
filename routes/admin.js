@@ -10,6 +10,7 @@ const {
   getChangeRequests, handleChangeRequest,
 } = require('../controllers/adminController');
 const { protect, authorize } = require('../middleware/auth');
+const asyncHandler = require('../utils/asyncHandler');
 
 router.use(protect, authorize('Admin'));
 
@@ -33,6 +34,6 @@ router.patch('/users/:id/toggle-active',       toggleUserActive);
 router.patch('/users/:id/reset-password',      resetUserPassword);
 router.delete('/users/:id',                    deleteUser);
 router.get  ('/users/change-requests',         getChangeRequests);
-router.patch('/users/:id/change-request',      handleChangeRequest);
+router.patch('/users/:id/change-request',      asyncHandler(handleChangeRequest));
 
 module.exports = router;
