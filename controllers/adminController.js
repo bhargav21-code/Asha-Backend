@@ -4,6 +4,13 @@ const { Family, Visit, DailyWorkReport } = require('../models/index');
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 
+const redactPasswordChangeValue = (user) => {
+  if (user?.change_request?.type !== 'password') return user;
+  const safeUser = { ...user, change_request: { ...user.change_request } };
+  delete safeUser.change_request.new_value;
+  return safeUser;
+};
+
 exports.getMetrics = async (req, res) => {
   const [
     totalFamilies,
@@ -76,7 +83,7 @@ exports.getHighRiskList = async (req, res) => {
 
 exports.getAllASHA = async (req, res) => {
   const workers = await User.find({ role: 'ASHA' }).select('-password').lean();
-  res.json({ success: true, data: workers });
+  res.json({ success: true, data: workers.map(redactPasswordChangeValue) });
 };
 
 exports.createASHA = async (req, res) => {
@@ -98,7 +105,8 @@ exports.getDailyReportsDashboard = async (req, res) => {
     // All ASHA workers
     const workerFilter = { role: 'ASHA', active: true };
     if (search) workerFilter.name = { $regex: search, $options: 'i' };
-    const allWorkers = await User.find(workerFilter).select('-password').lean();
+    const workerRecords = await User.find(workerFilter).select('-password').lean();
+    const allWorkers = workerRecords.map(redactPasswordChangeValue);
 
     // Reports for target date
     const reportFilter = { date: { $gte: targetDate, $lt: nextDay } };
@@ -251,7 +259,13 @@ exports.handleChangeRequest = async (req, res) => {
   if (!user || request?.status !== 'pending' || !request.type || !request.new_value)
     return res.status(404).json({ success: false, message: 'No pending request found' });
 
-  const filter = { _id: user._id, 'change_request.status': 'pending' };
+  const filter = {
+    _id: user._id,
+    'change_request.status': 'pending',
+    'change_request.type': request.type,
+    'change_request.new_value': request.new_value,
+    'change_request.requested_at': request.requested_at ?? null,
+  };
 
   if (action === 'approve' && request.type === 'password') {
     const requestedValue = request.new_value;
