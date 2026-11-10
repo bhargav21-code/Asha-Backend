@@ -31,6 +31,7 @@ const userSchema = new mongoose.Schema({
   change_request: {
     type:         { type: String, enum: ['username', 'password'] },
     new_value:    { type: String },
+    new_value_hashed: { type: Boolean, default: false },
     requested_at: { type: Date },
     status:       { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
   },
@@ -58,7 +59,10 @@ userSchema.methods.toJSON = function () {
   delete obj.otp_expires;
   delete obj.otp_attempts;
   delete obj.otp_locked_until;
-  if (obj.change_request?.type === 'password') delete obj.change_request.new_value;
+  if (obj.change_request?.type === 'password') {
+    delete obj.change_request.new_value;
+    delete obj.change_request.new_value_hashed;
+  }
   return obj;
 };
 

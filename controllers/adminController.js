@@ -8,6 +8,7 @@ const redactPasswordChangeValue = (user) => {
   if (user?.change_request?.type !== 'password') return user;
   const safeUser = { ...user, change_request: { ...user.change_request } };
   delete safeUser.change_request.new_value;
+  delete safeUser.change_request.new_value_hashed;
   return safeUser;
 };
 
@@ -268,21 +269,34 @@ exports.handleChangeRequest = async (req, res) => {
   };
 
   if (action === 'approve' && request.type === 'password') {
-    const requestedValue = request.new_value;
-    const passwordHash = /^\$2[aby]\$\d{2}\$/.test(requestedValue)
-      ? requestedValue
-      : await bcrypt.hash(requestedValue, 12);
+    // Only hashes created by the current request flow carry trusted provenance.
+    // Legacy requests without this marker are cancelled and must be resubmitted.
+    if (request.new_value_hashed !== true || !/^\$2[aby]\$\d{2}\$/.test(request.new_value)) {
+      const cancelled = await User.updateOne(filter, {
+        $set: { 'change_request.status': 'rejected' },
+        $unset: { 'change_request.new_value': 1, 'change_request.new_value_hashed': 1 },
+      });
+      if (!cancelled.matchedCount) return res.status(409).json({ success: false, message: 'Change request is no longer pending' });
+      return res.status(409).json({
+        success: false,
+        message: 'This older password request was cancelled because its hash cannot be verified. Ask the worker to submit the password change again.',
+      });
+    }
+
     const result = await User.updateOne(
       filter,
-      { $set: { password: passwordHash, 'change_request.status': 'approved' }, $unset: { 'change_request.new_value': 1 } }
+      {
+        $set: { password: request.new_value, 'change_request.status': 'approved' },
+        $unset: { 'change_request.new_value': 1, 'change_request.new_value_hashed': 1 },
+      }
     );
     if (!result.matchedCount) return res.status(409).json({ success: false, message: 'Change request is no longer pending' });
     return res.json({ success: true, message: 'Change request approved' });
   }
 
   const update = action === 'approve'
-    ? { $set: { username: request.new_value.toLowerCase(), 'change_request.status': 'approved' }, $unset: { 'change_request.new_value': 1 } }
-    : { $set: { 'change_request.status': 'rejected' }, $unset: { 'change_request.new_value': 1 } };
+    ? { $set: { username: request.new_value.toLowerCase(), 'change_request.status': 'approved' }, $unset: { 'change_request.new_value': 1, 'change_request.new_value_hashed': 1 } }
+    : { $set: { 'change_request.status': 'rejected' }, $unset: { 'change_request.new_value': 1, 'change_request.new_value_hashed': 1 } };
 
   let result;
   try {

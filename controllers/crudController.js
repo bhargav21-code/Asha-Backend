@@ -1,4 +1,6 @@
+const mongoose = require('mongoose');
 const Child = require('../models/Child');
+const Woman = require('../models/Woman');
 const { Family, Visit, DailyWorkReport } = require('../models/index');
 const safeUpdate = require('../utils/safeUpdate');
 const asyncHandler = require('../utils/asyncHandler');
@@ -51,6 +53,23 @@ exports.createChild = async (req, res) => {
 exports.updateChild = asyncHandler(async (req, res) => {
   const update = safeUpdate(req.body, childUpdateFields);
   if (!update) return res.status(400).json({ success: false, message: 'Invalid update fields' });
+
+  if (req.user.role !== 'Admin') {
+    if (Object.prototype.hasOwnProperty.call(update, 'mother_id') && update.mother_id !== null) {
+      if (typeof update.mother_id !== 'string' || !mongoose.Types.ObjectId.isValid(update.mother_id))
+        return res.status(400).json({ success: false, message: 'Invalid mother reference' });
+      const mother = await Woman.exists({ _id: update.mother_id, asha_id: req.user._id });
+      if (!mother) return res.status(404).json({ success: false, message: 'Mother not found' });
+    }
+
+    if (Object.prototype.hasOwnProperty.call(update, 'family_id') && update.family_id !== null) {
+      if (typeof update.family_id !== 'string' || !mongoose.Types.ObjectId.isValid(update.family_id))
+        return res.status(400).json({ success: false, message: 'Invalid family reference' });
+      const family = await Family.exists({ _id: update.family_id, asha_id: req.user._id });
+      if (!family) return res.status(404).json({ success: false, message: 'Family not found' });
+    }
+  }
+
   const child = await Child.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, update, { new: true, runValidators: true });
   if (!child) return res.status(404).json({ success: false, message: 'Not found' });
   res.json({ success: true, data: child });

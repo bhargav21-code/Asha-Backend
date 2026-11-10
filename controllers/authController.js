@@ -119,6 +119,7 @@ exports.requestChange = async (req, res) => {
     change_request: {
       type,
       new_value: type === 'password' ? await bcrypt.hash(new_value, 12) : new_value,
+      new_value_hashed: type === 'password',
       requested_at: new Date(),
       status: 'pending',
     },
