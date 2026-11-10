@@ -177,7 +177,9 @@ exports.forgotPassword = async (req, res) => {
 exports.verifyOTP = async (req, res) => {
   const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
   const { otp, new_password } = req.body;
-  if (typeof otp !== 'string' || typeof new_password !== 'string' || new_password.length < 6)
+  if (typeof new_password !== 'string' || new_password.length < 6)
+    return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+  if (typeof otp !== 'string')
     return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
 
   const user = await User.findOne({ email }).select('+otp +otp_expires +otp_attempts +otp_locked_until');
