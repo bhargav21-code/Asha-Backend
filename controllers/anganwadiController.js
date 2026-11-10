@@ -12,7 +12,7 @@ const anganwadiUpdateFields = {
     drinking_water: true, toilet: true, electricity: true,
     nutrition_stock: true, building_condition: true,
   },
-  children: [{ _id: true, ...anganwadiChildFields }],
+  children: [anganwadiChildFields],
 };
 
 exports.getAll = async (req, res) => {
