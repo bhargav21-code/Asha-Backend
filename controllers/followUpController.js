@@ -11,7 +11,7 @@ const followUpUpdateFields = {
   current_health_status: true, last_visit_date: true, next_followup_date: true,
   medicine_prescribed: true, treatment_notes: true, referral_information: true,
   hospital_visit_status: true, status: true, priority: true, active: true,
-  visit_history: [{ _id: true, ...visitHistoryFields }],
+  visit_history: [visitHistoryFields],
 };
 
 exports.getAll = async (req, res) => {
