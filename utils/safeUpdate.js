@@ -1,13 +1,16 @@
 // Build a strict, schema-shaped update object from untrusted request data.
 // Only explicitly listed fields are accepted; MongoDB operators and dotted paths are rejected.
 function sanitize(value, shape) {
-  if (value === null) return null;
-
   if (Array.isArray(shape)) {
     if (!Array.isArray(value)) return undefined;
-    const items = value.map(item => sanitize(item, shape[0]));
+    const items = value.map(item => {
+      if (item === null && shape[0] && typeof shape[0] === 'object') return undefined;
+      return sanitize(item, shape[0]);
+    });
     return items.some(item => item === undefined) ? undefined : items;
   }
+
+  if (value === null) return null;
 
   if (shape && typeof shape === 'object') {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
