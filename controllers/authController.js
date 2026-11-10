@@ -144,16 +144,26 @@ exports.forgotPassword = async (req, res) => {
 
       const otp = generateOTP();
       const expires = new Date(Date.now() + 10 * 60 * 1000);
+      const lockoutExpired = user.otp_locked_until && user.otp_locked_until <= now;
       const filter = {
         _id: user._id,
         $and: [
           { $or: [{ otp_locked_until: { $exists: false } }, { otp_locked_until: { $lte: now } }] },
-          { $or: [{ otp_attempts: { $lt: 5 } }, { otp_attempts: { $exists: false } }] },
+          {
+            $or: [
+              { otp_attempts: { $lt: 5 } },
+              { otp_attempts: { $exists: false } },
+              { otp_locked_until: { $lte: now } },
+            ],
+          },
         ],
       };
-      const update = { $set: { otp: hashOTP(otp), otp_expires: expires } };
-      // Reset failed guesses only after a completed lockout; never clear a concurrent lock.
-      if (user.otp_locked_until && user.otp_locked_until <= now) update.$set.otp_attempts = 0;
+      const update = {
+        $set: { otp: hashOTP(otp), otp_expires: expires },
+        $unset: { otp_locked_until: 1 },
+      };
+      // A completed lockout allows a fresh OTP and a fresh attempt budget.
+      if (lockoutExpired) update.$set.otp_attempts = 0;
       const result = await User.updateOne(filter, update);
       if (!result.matchedCount) return;
       await sendOTPEmail(email, otp, user.name);
