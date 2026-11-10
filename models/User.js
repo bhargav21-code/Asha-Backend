@@ -58,6 +58,7 @@ userSchema.methods.toJSON = function () {
   delete obj.otp_expires;
   delete obj.otp_attempts;
   delete obj.otp_locked_until;
+  if (obj.change_request?.type === 'password') delete obj.change_request.new_value;
   return obj;
 };
 
