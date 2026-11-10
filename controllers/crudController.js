@@ -1,6 +1,7 @@
 const Child = require('../models/Child');
 const { Family, Visit, DailyWorkReport } = require('../models/index');
 const safeUpdate = require('../utils/safeUpdate');
+const asyncHandler = require('../utils/asyncHandler');
 
 const childUpdateFields = {
   name: true, dob: true, gender: true, village: true, taluka: true, district: true,
@@ -36,24 +37,24 @@ exports.getAllChildren = async (req, res) => {
   res.json({ success: true, data: children, total, page: Number(page), pages: Math.ceil(total / limit) });
 };
 
-exports.getChild = async (req, res) => {
+exports.getChild = asyncHandler(async (req, res) => {
   const child = await Child.findOne(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }).lean();
   if (!child) return res.status(404).json({ success: false, message: 'Not found' });
   res.json({ success: true, data: child });
-};
+});
 
 exports.createChild = async (req, res) => {
   const child = await Child.create({ ...req.body, asha_id: req.user._id });
   res.status(201).json({ success: true, data: child });
 };
 
-exports.updateChild = async (req, res) => {
+exports.updateChild = asyncHandler(async (req, res) => {
   const update = safeUpdate(req.body, childUpdateFields);
   if (!update) return res.status(400).json({ success: false, message: 'Invalid update fields' });
   const child = await Child.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, update, { new: true, runValidators: true });
   if (!child) return res.status(404).json({ success: false, message: 'Not found' });
   res.json({ success: true, data: child });
-};
+});
 
 // ─── VISITS ──────────────────────────────────────────────
 exports.getAllVisits = async (req, res) => {
@@ -83,11 +84,11 @@ exports.createVisit = async (req, res) => {
   res.status(201).json({ success: true, data: visit });
 };
 
-exports.getVisit = async (req, res) => {
+exports.getVisit = asyncHandler(async (req, res) => {
   const visit = await Visit.findOne(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }).populate('asha_id', 'name').lean();
   if (!visit) return res.status(404).json({ success: false, message: 'Not found' });
   res.json({ success: true, data: visit });
-};
+});
 
 // ─── FAMILIES ─────────────────────────────────────────────
 exports.getAllFamilies = async (req, res) => {
@@ -105,24 +106,24 @@ exports.getAllFamilies = async (req, res) => {
   res.json({ success: true, data: families, total, page: Number(page), pages: Math.ceil(total / limit) });
 };
 
-exports.getFamily = async (req, res) => {
+exports.getFamily = asyncHandler(async (req, res) => {
   const family = await Family.findOne(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }).lean();
   if (!family) return res.status(404).json({ success: false, message: 'Not found' });
   res.json({ success: true, data: family });
-};
+});
 
 exports.createFamily = async (req, res) => {
   const family = await Family.create({ ...req.body, asha_id: req.user._id });
   res.status(201).json({ success: true, data: family });
 };
 
-exports.updateFamily = async (req, res) => {
+exports.updateFamily = asyncHandler(async (req, res) => {
   const update = safeUpdate(req.body, familyUpdateFields);
   if (!update) return res.status(400).json({ success: false, message: 'Invalid update fields' });
   const family = await Family.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, update, { new: true, runValidators: true });
   if (!family) return res.status(404).json({ success: false, message: 'Not found' });
   res.json({ success: true, data: family });
-};
+});
 
 // ─── REPORTS ──────────────────────────────────────────────
 exports.getReports = async (req, res) => {
