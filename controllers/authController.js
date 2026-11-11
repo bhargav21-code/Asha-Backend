@@ -165,16 +165,13 @@ exports.forgotPassword = async (req, res) => {
       // but before the normal mismatch handler could write the lockout.
       if (
         Number(user.otp_attempts || 0) >= 5 &&
-        (!user.otp_locked_until || user.otp_locked_until <= now)
+        !user.otp_locked_until
       ) {
         await User.updateOne(
           {
             _id: user._id,
             otp_attempts: { $gte: 5 },
-            $or: [
-              { otp_locked_until: { $exists: false } },
-              { otp_locked_until: { $lte: now } },
-            ],
+            otp_locked_until: { $exists: false },
           },
           {
             $set: { otp_locked_until: new Date(now.getTime() + 15 * 60 * 1000) },
@@ -202,10 +199,7 @@ exports.forgotPassword = async (req, res) => {
         _id: user._id,
         $and: [
           {
-            $or: [
-              { otp_locked_until: { $exists: false } },
-              { otp_locked_until: { $lte: now } },
-            ],
+            otp_locked_until: { $exists: false },
           },
           {
             $or: [
@@ -273,16 +267,13 @@ exports.verifyOTP = async (req, res) => {
   // incrementing the fifth attempt and recording its lockout.
   if (
     Number(user.otp_attempts || 0) >= 5 &&
-    (!user.otp_locked_until || user.otp_locked_until <= now)
+    !user.otp_locked_until
   ) {
     await User.updateOne(
       {
         _id: user._id,
         otp_attempts: { $gte: 5 },
-        $or: [
-          { otp_locked_until: { $exists: false } },
-          { otp_locked_until: { $lte: now } },
-        ],
+        otp_locked_until: { $exists: false },
       },
       {
         $set: { otp_locked_until: new Date(now.getTime() + 15 * 60 * 1000) },
