@@ -22,12 +22,12 @@ const {
   selfRegisterLimiter,
 } = require('../middleware/rateLimiters');
 
-router.post('/login', loginLimiter, login);
-router.post('/self-register', selfRegisterLimiter, selfRegister);
-router.get('/me', protect, getMe);
-router.post('/register', protect, authorize('Admin'), register);
+router.post('/login', loginLimiter, asyncHandler(login));
+router.post('/self-register', selfRegisterLimiter, asyncHandler(selfRegister));
+router.get('/me', protect, asyncHandler(getMe));
+router.post('/register', protect, authorize('Admin'), asyncHandler(register));
 router.post('/request-change', protect, asyncHandler(requestChange));
-router.post('/forgot-password', forgotPasswordLimiter, forgotPassword);
+router.post('/forgot-password', forgotPasswordLimiter, asyncHandler(forgotPassword));
 router.post('/verify-otp', verifyOtpLimiter, asyncHandler(verifyOTP));
 
 module.exports = router;
