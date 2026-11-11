@@ -28,7 +28,7 @@ const app = express();
 // when it is missing or invalid so rate limits cannot silently share one proxy IP.
 const trustProxyHopsRaw = process.env.TRUST_PROXY_HOPS;
 const trustProxyHops = trustProxyHopsRaw === undefined
-  ? (process.env.NODE_ENV === 'production' ? NaN : 0)
+  ? (['development', 'test'].includes(process.env.NODE_ENV) ? 0 : NaN)
   : Number(trustProxyHopsRaw);
 
 if (!Number.isInteger(trustProxyHops) || trustProxyHops < 0) {
