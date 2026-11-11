@@ -157,7 +157,34 @@ exports.forgotPassword = async (req, res) => {
       const now = new Date();
       const cooldownCutoff = new Date(now.getTime() - 60 * 1000);
 
-      if (!user || (user.otp_locked_until && user.otp_locked_until > now)) {
+      if (!user) {
+        return;
+      }
+
+      // Recover safely if the process stopped after reserving the fifth attempt
+      // but before the normal mismatch handler could write the lockout.
+      if (
+        Number(user.otp_attempts || 0) >= 5 &&
+        (!user.otp_locked_until || user.otp_locked_until <= now)
+      ) {
+        await User.updateOne(
+          {
+            _id: user._id,
+            otp_attempts: { $gte: 5 },
+            $or: [
+              { otp_locked_until: { $exists: false } },
+              { otp_locked_until: { $lte: now } },
+            ],
+          },
+          {
+            $set: { otp_locked_until: new Date(now.getTime() + 15 * 60 * 1000) },
+            $unset: { otp: 1, otp_expires: 1 },
+          }
+        );
+        return;
+      }
+
+      if (user.otp_locked_until && user.otp_locked_until > now) {
         return;
       }
 
@@ -238,7 +265,34 @@ exports.verifyOTP = async (req, res) => {
 
   const user = await User.findOne({ email }).select('+otp +otp_expires +otp_attempts +otp_locked_until');
   const now = new Date();
-  if (!user || !user.otp || !user.otp_expires || user.otp_expires <= now ||
+  if (!user) {
+    return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
+  }
+
+  // Repair an exhausted attempt budget if a previous process stopped between
+  // incrementing the fifth attempt and recording its lockout.
+  if (
+    Number(user.otp_attempts || 0) >= 5 &&
+    (!user.otp_locked_until || user.otp_locked_until <= now)
+  ) {
+    await User.updateOne(
+      {
+        _id: user._id,
+        otp_attempts: { $gte: 5 },
+        $or: [
+          { otp_locked_until: { $exists: false } },
+          { otp_locked_until: { $lte: now } },
+        ],
+      },
+      {
+        $set: { otp_locked_until: new Date(now.getTime() + 15 * 60 * 1000) },
+        $unset: { otp: 1, otp_expires: 1 },
+      }
+    );
+    return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
+  }
+
+  if (!user.otp || !user.otp_expires || user.otp_expires <= now ||
       (user.otp_locked_until && user.otp_locked_until > now)) {
     return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
   }
