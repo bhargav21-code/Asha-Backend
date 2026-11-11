@@ -1,24 +1,18 @@
 const express = require('express');
 const router = express.Router();
 const {
-  getAll,
-  getOne,
-  create,
-  update,
-  addChild,
-  markAttendance,
-  remove,
+  getAll, getOne, create, update, addChild, markAttendance, remove,
 } = require('../controllers/anganwadiController');
 const { protect } = require('../middleware/auth');
+const asyncHandler = require('../utils/asyncHandler');
 
 router.use(protect);
-
-router.get('/',    getAll);
-router.post('/',   create);
-router.get('/:id',    getOne);
-router.put('/:id',    update);
-router.delete('/:id', remove);
-router.post('/:id/children',         addChild);
-router.put('/:id/mark-attendance',   markAttendance);
+router.get('/', asyncHandler(getAll));
+router.post('/', asyncHandler(create));
+router.get('/:id', asyncHandler(getOne));
+router.put('/:id', asyncHandler(update));
+router.delete('/:id', asyncHandler(remove));
+router.post('/:id/children', asyncHandler(addChild));
+router.put('/:id/mark-attendance', asyncHandler(markAttendance));
 
 module.exports = router;
