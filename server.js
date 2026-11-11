@@ -22,6 +22,10 @@ const followUpRoutes   = require('./routes/followUps');
 
 const app = express();
 
+// Render serves the app behind one trusted reverse-proxy hop.
+// This is required for req.ip-based rate limiting to use the actual client IP.
+app.set('trust proxy', 1);
+
 // Security & middleware
 app.use(helmet());
 const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
