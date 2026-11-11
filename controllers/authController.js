@@ -199,7 +199,10 @@ exports.forgotPassword = async (req, res) => {
         _id: user._id,
         $and: [
           {
-            otp_locked_until: { $exists: false },
+            $or: [
+              { otp_locked_until: { $exists: false } },
+              { otp_locked_until: { $lte: now } },
+            ],
           },
           {
             $or: [
