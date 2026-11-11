@@ -149,7 +149,7 @@ exports.getDailyReportsDashboard = async (req, res) => {
 
     res.json({ success: true, data: { cards, summary, date: targetDate } });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message });
   }
 };
 
