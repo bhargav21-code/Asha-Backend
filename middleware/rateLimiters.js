@@ -2,28 +2,14 @@
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const { isIP } = require('node:net');
 
-// Render's public traffic passes through Cloudflare.
-// Use Cloudflare's client-IP header in production.
-// For local development, use Express's request IP.
+// Render terminates public traffic at its trusted reverse proxy.
+// server.js sets Express trust proxy to one hop; use Express's resolved client IP
+// rather than trusting a caller-supplied CF-Connecting-IP header.
 const clientIpKeyGenerator = (req) => {
-  let clientIp;
-
-  if (process.env.NODE_ENV === 'production') {
-    const cloudflareIp = req.get('CF-Connecting-IP')?.trim();
-
-    if (cloudflareIp && isIP(cloudflareIp)) {
-      clientIp = cloudflareIp;
-    }
-  }
-
-  if (!clientIp) {
-    clientIp = req.ip || req.socket.remoteAddress;
-  }
-
+  const clientIp = req.ip || req.socket.remoteAddress;
   if (!clientIp || !isIP(clientIp)) {
     return 'unknown-client';
   }
-
   return ipKeyGenerator(clientIp, 56);
 };
 
