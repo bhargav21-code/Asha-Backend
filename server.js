@@ -22,9 +22,20 @@ const followUpRoutes   = require('./routes/followUps');
 
 const app = express();
 
-// Render serves the app behind one trusted reverse-proxy hop.
-// This is required for req.ip-based rate limiting to use the actual client IP.
-app.set('trust proxy', 1);
+// Render traffic can pass through Cloudflare and Render load balancers.
+// Do not guess the forwarding depth: set TRUST_PROXY_HOPS only after measuring
+// the X-Forwarded-For chain on the deployed service. Refuse production startup
+// when it is missing or invalid so rate limits cannot silently share one proxy IP.
+const trustProxyHopsRaw = process.env.TRUST_PROXY_HOPS;
+const trustProxyHops = trustProxyHopsRaw === undefined
+  ? (process.env.NODE_ENV === 'production' ? NaN : 0)
+  : Number(trustProxyHopsRaw);
+
+if (!Number.isInteger(trustProxyHops) || trustProxyHops < 0) {
+  throw new Error('Set TRUST_PROXY_HOPS to the verified number of trusted reverse-proxy hops.');
+}
+
+app.set('trust proxy', trustProxyHops);
 
 // Security & middleware
 app.use(helmet());
