@@ -242,6 +242,24 @@ exports.deleteUser = async (req, res) => {
 
 // Get pending change requests (username/password change from ASHA workers)
 exports.getChangeRequests = async (req, res) => {
+  // Legacy password requests have no trustworthy hash provenance marker.
+  // Cancel and erase them rather than retaining potentially plaintext passwords
+  // or guessing whether a bcrypt-looking value is a real hash.
+  await User.updateMany(
+    {
+      'change_request.type': 'password',
+      'change_request.status': 'pending',
+      'change_request.new_value_hashed': { $ne: true },
+    },
+    {
+      $set: { 'change_request.status': 'rejected' },
+      $unset: {
+        'change_request.new_value': 1,
+        'change_request.new_value_hashed': 1,
+      },
+    }
+  );
+
   const users = await User.find({ 'change_request.status': 'pending' }).select('-password');
   res.json({ success: true, data: users });
 };
