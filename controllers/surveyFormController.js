@@ -14,7 +14,7 @@ exports.getAll = async (req, res) => {
     const forms = await SurveyForm.find(filter).sort({ createdAt: -1 }).lean();
     res.json({ success: true, data: forms });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message });
   }
 };
 
@@ -24,7 +24,7 @@ exports.getOne = async (req, res) => {
     if (!form) return res.status(404).json({ success: false, message: 'Not found' });
     res.json({ success: true, data: form });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message });
   }
 };
 
@@ -33,7 +33,7 @@ exports.create = async (req, res) => {
     const form = await SurveyForm.create({ ...req.body, asha_id: req.user._id });
     res.status(201).json({ success: true, data: form });
   } catch (err) {
-    res.status(400).json({ success: false, message: err.message });
+    res.status(400).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Invalid request' : err.message });
   }
 };
 
@@ -45,7 +45,7 @@ exports.update = async (req, res) => {
     if (!form) return res.status(404).json({ success: false, message: 'Not found' });
     res.json({ success: true, data: form });
   } catch (err) {
-    res.status(400).json({ success: false, message: err.message });
+    res.status(400).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Invalid request' : err.message });
   }
 };
 
@@ -55,6 +55,6 @@ exports.remove = async (req, res) => {
     if (!form) return res.status(404).json({ success: false, message: 'Not found' });
     res.json({ success: true, message: 'Deleted' });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message });
   }
 };
