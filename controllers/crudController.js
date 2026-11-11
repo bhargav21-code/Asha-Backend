@@ -45,10 +45,44 @@ exports.getChild = asyncHandler(async (req, res) => {
   res.json({ success: true, data: child });
 });
 
-exports.createChild = async (req, res) => {
-  const child = await Child.create({ ...req.body, asha_id: req.user._id });
+
+exports.createChild = asyncHandler(async (req, res) => {
+  if (req.user.role !== 'Admin') {
+    if (Object.prototype.hasOwnProperty.call(req.body, 'mother_id') && req.body.mother_id !== null) {
+      if (typeof req.body.mother_id !== 'string' || !mongoose.Types.ObjectId.isValid(req.body.mother_id))
+        return res.status(400).json({ success: false, message: 'Invalid mother reference' });
+
+      const mother = await Woman.exists({
+        _id: req.body.mother_id,
+        asha_id: req.user._id,
+      });
+
+      if (!mother)
+        return res.status(404).json({ success: false, message: 'Mother not found' });
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'family_id') && req.body.family_id !== null) {
+      if (typeof req.body.family_id !== 'string' || !mongoose.Types.ObjectId.isValid(req.body.family_id))
+        return res.status(400).json({ success: false, message: 'Invalid family reference' });
+
+      const family = await Family.exists({
+        _id: req.body.family_id,
+        asha_id: req.user._id,
+      });
+
+      if (!family)
+        return res.status(404).json({ success: false, message: 'Family not found' });
+    }
+  }
+
+  const child = await Child.create({
+    ...req.body,
+    asha_id: req.user._id,
+  });
+
   res.status(201).json({ success: true, data: child });
-};
+});
+
 
 exports.updateChild = asyncHandler(async (req, res) => {
   const update = safeUpdate(req.body, childUpdateFields);
@@ -98,10 +132,62 @@ exports.getAllVisits = async (req, res) => {
   res.json({ success: true, data: visits, total, page: Number(page), pages: Math.ceil(total / limit) });
 };
 
-exports.createVisit = async (req, res) => {
-  const visit = await Visit.create({ ...req.body, asha_id: req.user._id });
+
+exports.createVisit = asyncHandler(async (req, res) => {
+  if (req.user.role !== 'Admin') {
+    if (req.body.family_id != null) {
+      if (typeof req.body.family_id !== 'string' ||
+          !mongoose.Types.ObjectId.isValid(req.body.family_id)) {
+        return res.status(400).json({
+          success: false, message: 'Invalid family reference'
+        });
+      }
+
+      const family = await Family.exists({
+        _id: req.body.family_id,
+        asha_id: req.user._id,
+      });
+
+      if (!family) {
+        return res.status(404).json({
+          success: false, message: 'Family not found'
+        });
+      }
+    }
+
+    if (req.body.individual_id != null) {
+      if (!mongoose.Types.ObjectId.isValid(req.body.individual_id) ||
+          !['Woman', 'Child'].includes(req.body.individual_type)) {
+        return res.status(400).json({
+          success: false, message: 'Invalid individual reference'
+        });
+      }
+
+      const Model = req.body.individual_type === 'Woman'
+        ? Woman
+        : Child;
+
+      const individual = await Model.exists({
+        _id: req.body.individual_id,
+        asha_id: req.user._id,
+      });
+
+      if (!individual) {
+        return res.status(404).json({
+          success: false, message: 'Individual not found'
+        });
+      }
+    }
+  }
+
+  const visit = await Visit.create({
+    ...req.body,
+    asha_id: req.user._id,
+  });
+
   res.status(201).json({ success: true, data: visit });
-};
+});
+
 
 exports.getVisit = asyncHandler(async (req, res) => {
   const visit = await Visit.findOne(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }).populate('asha_id', 'name').lean();

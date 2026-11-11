@@ -40,6 +40,7 @@ const userSchema = new mongoose.Schema({
   otp_expires:      { type: Date, select: false },
   otp_attempts:     { type: Number, default: 0, select: false },
   otp_locked_until: { type: Date, select: false },
+  otp_last_sent_at: { type: Date, select: false },
 }, { timestamps: true });
 
 userSchema.pre('save', async function (next) {
@@ -59,6 +60,7 @@ userSchema.methods.toJSON = function () {
   delete obj.otp_expires;
   delete obj.otp_attempts;
   delete obj.otp_locked_until;
+  delete obj.otp_last_sent_at;
   if (obj.change_request?.type === 'password') {
     delete obj.change_request.new_value;
     delete obj.change_request.new_value_hashed;

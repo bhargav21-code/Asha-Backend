@@ -129,27 +129,57 @@ exports.requestChange = async (req, res) => {
 };
 
 // ─── Forgot Password - Send OTP to email ─────────────────────
-exports.forgotPassword = async (req, res) => {
-  const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
-  if (!email)
-    return res.status(400).json({ success: false, message: 'Email is required' });
 
-  // Respond before account lookup or email delivery to avoid an account-existence timing signal.
-  res.json({ success: true, message: 'If an account exists for that email, an OTP will be sent.' });
+exports.forgotPassword = async (req, res) => {
+  const email = typeof req.body.email === 'string'
+    ? req.body.email.trim().toLowerCase()
+    : '';
+
+  if (!email) {
+    return res.status(400).json({
+      success: false,
+      message: 'Email is required',
+    });
+  }
+
+  // Avoid account-existence timing signals.
+  res.json({
+    success: true,
+    message: 'If an account exists for that email, an OTP will be sent.',
+  });
 
   setImmediate(async () => {
     try {
-      const user = await User.findOne({ email }).select('+otp_locked_until +otp_attempts');
+      const user = await User.findOne({ email }).select(
+        '+otp_locked_until +otp_attempts +otp_last_sent_at'
+      );
+
       const now = new Date();
-      if (!user || (user.otp_locked_until && user.otp_locked_until > now)) return;
+      const cooldownCutoff = new Date(now.getTime() - 60 * 1000);
+
+      if (!user || (user.otp_locked_until && user.otp_locked_until > now)) {
+        return;
+      }
+
+      // Enforce a 60-second cooldown for each account.
+      if (user.otp_last_sent_at && user.otp_last_sent_at > cooldownCutoff) {
+        return;
+      }
 
       const otp = generateOTP();
-      const expires = new Date(Date.now() + 10 * 60 * 1000);
-      const lockoutExpired = user.otp_locked_until && user.otp_locked_until <= now;
+      const expires = new Date(now.getTime() + 10 * 60 * 1000);
+      const lockoutExpired =
+        user.otp_locked_until && user.otp_locked_until <= now;
+
       const filter = {
         _id: user._id,
         $and: [
-          { $or: [{ otp_locked_until: { $exists: false } }, { otp_locked_until: { $lte: now } }] },
+          {
+            $or: [
+              { otp_locked_until: { $exists: false } },
+              { otp_locked_until: { $lte: now } },
+            ],
+          },
           {
             $or: [
               { otp_attempts: { $lt: 5 } },
@@ -157,22 +187,45 @@ exports.forgotPassword = async (req, res) => {
               { otp_locked_until: { $lte: now } },
             ],
           },
+          {
+            $or: [
+              { otp_last_sent_at: { $exists: false } },
+              { otp_last_sent_at: { $lte: cooldownCutoff } },
+            ],
+          },
         ],
       };
+
       const update = {
-        $set: { otp: hashOTP(otp), otp_expires: expires },
-        $unset: { otp_locked_until: 1 },
+        $set: {
+          otp: hashOTP(otp),
+          otp_expires: expires,
+          otp_last_sent_at: now,
+        },
+        $unset: {
+          otp_locked_until: 1,
+        },
       };
+
       // A completed lockout allows a fresh OTP and a fresh attempt budget.
-      if (lockoutExpired) update.$set.otp_attempts = 0;
+      if (lockoutExpired) {
+        update.$set.otp_attempts = 0;
+      }
+
+      // Atomic conditional update prevents concurrent requests bypassing cooldown.
       const result = await User.updateOne(filter, update);
-      if (!result.matchedCount) return;
+
+      if (!result.matchedCount) {
+        return;
+      }
+
       await sendOTPEmail(email, otp, user.name);
     } catch (err) {
       console.error('Forgot-password OTP processing failed:', err);
     }
   });
 };
+
 
 // ─── Verify OTP and reset password ───────────────────────────
 exports.verifyOTP = async (req, res) => {
