@@ -496,7 +496,7 @@ async function run() {
       releasePasswordHash();
       const firstVerify = await firstVerifyPromise;
       assert.equal(firstVerify.statusCode, 200);
-      const resetUser = await User.findById(otpUser._id).select('+password +otp_attempt_started_at');
+      const resetUser = await User.findById(otpUser._id).select('+password +otp_attempt_started_at +otp_attempts +otp');
       assert.equal(resetUser.otp, undefined);
       assert.equal(resetUser.otp_attempt_started_at, undefined);
       assert.equal(resetUser.otp_attempts, 0);
