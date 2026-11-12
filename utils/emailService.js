@@ -2,7 +2,7 @@ const { Resend } = require('resend');
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 exports.sendOTPEmail = async (toEmail, otp, name) => {
-  await resend.emails.send({
+  const result = await resend.emails.send({
     from: 'ASHA Health System <onboarding@resend.dev>',
     to: toEmail,
     subject: 'Password Reset OTP - ASHA Health System',
@@ -27,4 +27,12 @@ exports.sendOTPEmail = async (toEmail, otp, name) => {
       </div>
     `,
   });
+
+  if (result?.error) {
+    const error = new Error('OTP email submission failed');
+    error.code = 'OTP_EMAIL_SUBMISSION_FAILED';
+    throw error;
+  }
+
+  return result?.data || result;
 };
