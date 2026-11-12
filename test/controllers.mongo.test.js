@@ -486,7 +486,12 @@ async function run() {
       const firstVerifyPromise = invoke(authController.verifyOTP, {
         body: { email: otpEmail, otp: otpCode, new_password: 'first-concurrent-password' },
       });
-      await hashStarted;
+      const hashReached = await Promise.race([
+        hashStarted.then(() => true),
+        firstVerifyPromise.then(() => false),
+        new Promise(resolve => setTimeout(() => resolve(null), 5000)),
+      ]);
+      assert.equal(hashReached, true, 'Valid fifth OTP attempt should reach password hashing');
 
       const concurrentVerify = await invoke(authController.verifyOTP, {
         body: { email: otpEmail, otp: otpCode, new_password: 'second-concurrent-password' },
