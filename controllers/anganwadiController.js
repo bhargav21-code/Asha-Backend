@@ -12,7 +12,6 @@ const anganwadiUpdateFields = {
     drinking_water: true, toilet: true, electricity: true,
     nutrition_stock: true, building_condition: true,
   },
-  children: [anganwadiChildFields],
 };
 
 exports.getAll = async (req, res) => {
