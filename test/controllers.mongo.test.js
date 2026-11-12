@@ -120,7 +120,7 @@ async function run() {
       params: { id: followUp._id.toString() },
       body: {
         status: 'Completed',
-        visit_history: [{ visit_date: new Date('2026-02-01T00:00:00.000Z'), observations: 'Replacement entry' }],
+        visit_history: [{ visit_date: '2026-02-01T00:00:00.000Z', observations: 'Replacement entry' }],
       },
     });
     assert.equal(replaceHistory.statusCode, 400);
@@ -131,7 +131,7 @@ async function run() {
     const appendHistory = await invoke(followUpController.addVisitHistory, {
       user: { _id: ownerId, role: 'ASHA' },
       params: { id: followUp._id.toString() },
-      body: { visit_date: new Date('2026-02-01T00:00:00.000Z'), observations: 'Appended entry' },
+      body: { visit_date: '2026-02-01T00:00:00.000Z', observations: 'Appended entry' },
     });
     assert.equal(appendHistory.statusCode, 201);
     const historyAfterAppend = await FollowUp.findById(followUp._id);
