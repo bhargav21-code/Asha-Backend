@@ -4,7 +4,7 @@ const asyncHandler = require('../utils/asyncHandler');
 
 const womanUpdateFields = {
   name: true, age: true, mobile: true, address: true, village: true, taluka: true, district: true,
-  pregnancy_status: true, pregnancy_month: true, edd: true, lmp: true, high_risk: true,
+  pregnancy_status: true, pregnancy_month: true, edd: true, lmp: true,
   medical_metrics: { weight: true, bp_sys: true, bp_dia: true, hemoglobin: true, diabetes: true, thyroid: true },
   gov_schemes: { mamta_card: true, jsy: true },
   checkups: { last_date: true, next_date: true },
@@ -39,15 +39,28 @@ exports.getOne = asyncHandler(async (req, res) => {
 });
 
 exports.create = async (req, res) => {
-  const woman = await Woman.create({ ...req.body, asha_id: req.user._id });
+  const createData = { ...req.body };
+  delete createData.high_risk; // Derived from medical_metrics; never accept a client-supplied flag.
+  const woman = await Woman.create({ ...createData, asha_id: req.user._id });
   res.status(201).json({ success: true, data: woman });
 };
 
 exports.update = asyncHandler(async (req, res) => {
   const update = safeUpdate(req.body, womanUpdateFields);
   if (!update) return res.status(400).json({ success: false, message: 'Invalid update fields' });
-  const woman = await Woman.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, update, { new: true, runValidators: true });
+  const woman = await Woman.findOne(req.user.role === 'Admin'
+    ? { _id: req.params.id }
+    : { _id: req.params.id, asha_id: req.user._id });
   if (!woman) return res.status(404).json({ success: false, message: 'Record not found' });
+
+  woman.set(update);
+  try {
+    await woman.save();
+  } catch (err) {
+    if (err.name === 'VersionError')
+      return res.status(409).json({ success: false, message: 'Record changed concurrently. Reload and retry the update.' });
+    throw err;
+  }
   res.json({ success: true, data: woman });
 });
 
