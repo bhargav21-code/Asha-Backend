@@ -2,6 +2,9 @@ const assert = require('node:assert/strict');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const { createHmac } = require('node:crypto');
+
+// The integration suite tests OTP verification only; email delivery is not invoked.
+process.env.RESEND_API_KEY ||= 're_integration_test_dummy_key';
 const Anganwadi = require('../models/Anganwadi');
 const Woman = require('../models/Woman');
 const Child = require('../models/Child');
