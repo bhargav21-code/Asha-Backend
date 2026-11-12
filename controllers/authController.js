@@ -10,7 +10,12 @@ const attemptReservationIsActive = (startedAt, now) =>
   startedAt && startedAt > new Date(now.getTime() - OTP_ATTEMPT_RESERVATION_TIMEOUT_MS);
 const staleAttemptReservationFilter = (startedAt, staleCutoff) => startedAt
   ? { otp_attempt_started_at: { $lte: staleCutoff } }
-  : { otp_attempt_started_at: { $in: [null] } };
+  : {
+    $or: [
+      { otp_attempt_started_at: { $exists: false } },
+      { otp_attempt_started_at: null },
+    ],
+  };
 
 const generateOTP = () => randomInt(100000, 1000000).toString();
 const hashOTP = (otp) => {
