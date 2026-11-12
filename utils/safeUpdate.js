@@ -10,7 +10,10 @@ function sanitize(value, shape) {
     return items.some(item => item === undefined) ? undefined : items;
   }
 
-  if (value === null) return null;
+  if (value === null) {
+    // Do not allow replacing a nested object wholesale; callers may update its leaves.
+    return shape && typeof shape === 'object' ? undefined : null;
+  }
 
   if (shape && typeof shape === 'object') {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
@@ -30,8 +33,41 @@ function sanitize(value, shape) {
   return value;
 }
 
+function flattenNestedObjects(value, prefix, result) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    for (const [key, nestedValue] of Object.entries(value)) {
+      flattenNestedObjects(nestedValue, prefix ? `${prefix}.${key}` : key, result);
+    }
+  } else if (prefix) {
+    result[prefix] = value;
+  }
+}
+
 module.exports = function safeUpdate(body, allowedFields) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
-  const result = sanitize(body, allowedFields);
-  return result && Object.keys(result).length ? result : null;
+  const sanitized = sanitize(body, allowedFields);
+  if (!sanitized) return null;
+
+  // Dotted leaf paths make MongoDB apply partial nested changes without erasing siblings.
+  const update = {};
+  flattenNestedObjects(sanitized, '', update);
+  return Object.keys(update).length ? update : null;
 };
+
+// Minimal runnable regression check: node utils/safeUpdate.js
+if (require.main === module) {
+  const assert = require('node:assert/strict');
+  const fields = { facility: { drinking_water: true, toilet: true }, active: true };
+
+  assert.deepEqual(
+    module.exports({ facility: { drinking_water: true } }, fields),
+    { 'facility.drinking_water': true }
+  );
+  assert.deepEqual(
+    module.exports({ facility: { toilet: false }, active: false }, fields),
+    { 'facility.toilet': false, active: false }
+  );
+  assert.equal(module.exports({ facility: null }, fields), null);
+  assert.equal(module.exports({ 'facility.toilet': true }, fields), null);
+  assert.equal(module.exports({ facility: { unknown: true } }, fields), null);
+}
