@@ -16,10 +16,6 @@ const childUpdateFields = {
 const familyUpdateFields = {
   head_name: true, mobile: true, village: true, taluka: true, district: true, address: true, active: true,
   conditions: { toilet: true, water_source: true, electricity: true, lpg: true },
-  members: [{
-    name: true, age: true, gender: true, relation: true,
-    conditions: { bp: true, diabetes: true, tb: true, anemia: true },
-  }],
 };
 
 // ─── CHILDREN ────────────────────────────────────────────
