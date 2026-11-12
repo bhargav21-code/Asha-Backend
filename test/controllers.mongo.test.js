@@ -1,5 +1,7 @@
 const assert = require('node:assert/strict');
 const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+const { createHmac } = require('node:crypto');
 const Anganwadi = require('../models/Anganwadi');
 const Woman = require('../models/Woman');
 const Child = require('../models/Child');
@@ -11,6 +13,7 @@ const crudController = require('../controllers/crudController');
 const womanController = require('../controllers/womanController');
 const followUpController = require('../controllers/followUpController');
 const adminController = require('../controllers/adminController');
+const authController = require('../controllers/authController');
 
 function responseRecorder() {
   return {
@@ -28,6 +31,7 @@ async function invoke(handler, req) {
 }
 
 async function run() {
+  process.env.JWT_SECRET ||= 'isolated-mongodb-integration-test-secret';
   const uri = process.env.MONGO_URI;
   assert.ok(uri, 'MONGO_URI is required for MongoDB integration tests');
   await mongoose.connect(uri, { serverSelectionTimeoutMS: 10000 });
@@ -229,6 +233,27 @@ async function run() {
     });
     assert.equal(createVisitWithForeignWoman.statusCode, 404);
 
+    // Correcting DOB and growth measurements must run the Child save derivations.
+    const dob24MonthsAgo = new Date(Date.now() - 24 * 30.44 * 24 * 60 * 60 * 1000);
+    const childDerivationUpdate = await invoke(crudController.updateChild, {
+      user: { _id: ownerId, role: 'ASHA' },
+      params: { id: ownedChild._id.toString() },
+      body: { dob: dob24MonthsAgo.toISOString(), growth_metrics: { weight: 7 } },
+    });
+    assert.equal(childDerivationUpdate.statusCode, 200);
+    let derivedChild = await Child.findById(ownedChild._id);
+    assert.equal(derivedChild.age_months, 24);
+    assert.equal(derivedChild.nutrition_status, 'Severe Malnutrition');
+
+    const measurementCorrection = await invoke(crudController.updateChild, {
+      user: { _id: ownerId, role: 'ASHA' },
+      params: { id: ownedChild._id.toString() },
+      body: { growth_metrics: { weight: 11 } },
+    });
+    assert.equal(measurementCorrection.statusCode, 200);
+    derivedChild = await Child.findById(ownedChild._id);
+    assert.equal(derivedChild.nutrition_status, 'Normal');
+
     // Family: partial household updates preserve sibling fields.
     const family = await Family.create({
       head_name: 'Test Household',
@@ -330,6 +355,67 @@ async function run() {
     assert.equal(refreshedWoman.medical_metrics.hemoglobin, 10);
     assert.equal(refreshedWoman.high_risk, true);
 
+    // The high-risk flag is derived only; clients cannot set it directly on create/update.
+    const manualRiskWoman = await invoke(womanController.create, {
+      user: { _id: ownerId, role: 'ASHA' },
+      body: { name: 'Manual Risk Flag', age: 30, village: 'Test Village', high_risk: true },
+    });
+    assert.equal(manualRiskWoman.statusCode, 201);
+    fixtures.women.push(manualRiskWoman.body.data._id);
+    assert.equal(manualRiskWoman.body.data.high_risk, false);
+
+    const directRiskOverride = await invoke(womanController.update, {
+      user: { _id: ownerId, role: 'ASHA' },
+      params: { id: woman._id.toString() },
+      body: { high_risk: false },
+    });
+    assert.equal(directRiskOverride.statusCode, 400);
+
+    const diabetesCastUpdate = await invoke(womanController.update, {
+      user: { _id: ownerId, role: 'ASHA' },
+      params: { id: woman._id.toString() },
+      body: { medical_metrics: { hemoglobin: 12, diabetes: 'yes' } },
+    });
+    assert.equal(diabetesCastUpdate.statusCode, 200);
+    refreshedWoman = await Woman.findById(woman._id);
+    assert.equal(refreshedWoman.medical_metrics.diabetes, true);
+    assert.equal(refreshedWoman.high_risk, true);
+
+    const clearDiabetesUpdate = await invoke(womanController.update, {
+      user: { _id: ownerId, role: 'ASHA' },
+      params: { id: woman._id.toString() },
+      body: { medical_metrics: { diabetes: 'no' } },
+    });
+    assert.equal(clearDiabetesUpdate.statusCode, 200);
+    refreshedWoman = await Woman.findById(woman._id);
+    assert.equal(refreshedWoman.medical_metrics.diabetes, false);
+    assert.equal(refreshedWoman.high_risk, false);
+
+    const thyroidCastUpdate = await invoke(womanController.update, {
+      user: { _id: ownerId, role: 'ASHA' },
+      params: { id: woman._id.toString() },
+      body: { medical_metrics: { thyroid: '1' } },
+    });
+    assert.equal(thyroidCastUpdate.statusCode, 200);
+    refreshedWoman = await Woman.findById(woman._id);
+    assert.equal(refreshedWoman.medical_metrics.thyroid, true);
+    assert.equal(refreshedWoman.high_risk, true);
+
+    // Optimistic concurrency rejects a stale metric snapshot rather than overwriting
+    // a newer risk calculation with a calculation based on old metrics.
+    const concurrentA = await Woman.findById(woman._id);
+    const concurrentB = await Woman.findById(woman._id);
+    concurrentA.set('medical_metrics.hemoglobin', 10);
+    concurrentB.set('medical_metrics.bp_sys', 120);
+    await concurrentA.save();
+    await assert.rejects(
+      concurrentB.save(),
+      error => error.name === 'VersionError'
+    );
+    refreshedWoman = await Woman.findById(woman._id);
+    assert.equal(refreshedWoman.medical_metrics.hemoglobin, 10);
+    assert.equal(refreshedWoman.high_risk, true);
+
     // Completed password cleanup only updates records that still contain a value.
     const userSuffix = new mongoose.Types.ObjectId().toString();
     const cleanupTarget = await User.create({
@@ -366,6 +452,56 @@ async function run() {
     assert.equal(unchangedCleaned.updatedAt.getTime(), alreadyCleanedUpdatedAt);
     assert.equal(cancelledPending.change_request.status, 'rejected');
     assert.equal(cancelledPending.change_request.new_value, undefined);
+
+    // A concurrent request must not recover a fifth attempt while its password
+    // hash is still being generated by the original successful verification.
+    const otpCode = '482761';
+    const otpEmail = `otp-race-${userSuffix}@example.test`;
+    const otpUser = await User.create({
+      name: 'OTP Race User',
+      username: `otp-race-${userSuffix}`,
+      email: otpEmail,
+      otp: createHmac('sha256', process.env.JWT_SECRET).update(otpCode).digest('hex'),
+      otp_expires: new Date(Date.now() + 10 * 60 * 1000),
+      otp_attempts: 4,
+    });
+    fixtures.users.push(otpUser._id);
+
+    const originalBcryptHash = bcrypt.hash;
+    let releasePasswordHash;
+    let passwordHashStarted;
+    const hashStarted = new Promise(resolve => { passwordHashStarted = resolve; });
+    const hashGate = new Promise(resolve => { releasePasswordHash = resolve; });
+    bcrypt.hash = async (value, rounds) => {
+      if (value === 'first-concurrent-password') {
+        passwordHashStarted();
+        await hashGate;
+      }
+      return originalBcryptHash(value, rounds);
+    };
+    try {
+      const firstVerifyPromise = invoke(authController.verifyOTP, {
+        body: { email: otpEmail, otp: otpCode, new_password: 'first-concurrent-password' },
+      });
+      await hashStarted;
+
+      const concurrentVerify = await invoke(authController.verifyOTP, {
+        body: { email: otpEmail, otp: otpCode, new_password: 'second-concurrent-password' },
+      });
+      assert.equal(concurrentVerify.statusCode, 400);
+
+      releasePasswordHash();
+      const firstVerify = await firstVerifyPromise;
+      assert.equal(firstVerify.statusCode, 200);
+      const resetUser = await User.findById(otpUser._id).select('+password +otp_attempt_started_at');
+      assert.equal(resetUser.otp, undefined);
+      assert.equal(resetUser.otp_attempt_started_at, undefined);
+      assert.equal(resetUser.otp_attempts, 0);
+      assert.equal(await bcrypt.compare('first-concurrent-password', resetUser.password), true);
+    } finally {
+      bcrypt.hash = originalBcryptHash;
+      releasePasswordHash?.();
+    }
 
     // Follow-Up: generic updates cannot replace history; append preserves prior IDs.
     const followUp = await FollowUp.create({
