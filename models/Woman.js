@@ -42,12 +42,20 @@ const womanSchema = new mongoose.Schema({
 womanSchema.index({ high_risk: 1, village: 1 });
 womanSchema.index({ village: 1, pregnancy_status: 1 });
 
+function numericMetric(value) {
+  if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 function isBelowThreshold(value, threshold) {
-  return value !== null && value !== undefined && Number.isFinite(Number(value)) && Number(value) < threshold;
+  const number = numericMetric(value);
+  return number !== null && number < threshold;
 }
 
 function isAboveThreshold(value, threshold) {
-  return value !== null && value !== undefined && Number.isFinite(Number(value)) && Number(value) > threshold;
+  const number = numericMetric(value);
+  return number !== null && number > threshold;
 }
 
 function calculateHighRisk(metrics = {}) {
