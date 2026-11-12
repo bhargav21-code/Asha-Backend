@@ -104,8 +104,14 @@ exports.updateChild = asyncHandler(async (req, res) => {
     }
   }
 
-  const child = await Child.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, update, { new: true, runValidators: true });
+  const child = await Child.findOne(req.user.role === 'Admin'
+    ? { _id: req.params.id }
+    : { _id: req.params.id, asha_id: req.user._id });
   if (!child) return res.status(404).json({ success: false, message: 'Not found' });
+
+  // Use save() so the Child pre-save hook refreshes age_months and nutrition_status.
+  child.set(update);
+  await child.save();
   res.json({ success: true, data: child });
 });
 
