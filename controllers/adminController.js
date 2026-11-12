@@ -249,6 +249,7 @@ exports.getChangeRequests = async (req, res) => {
       'change_request.type': 'password',
       'change_request.status': { $in: ['approved', 'rejected'] },
       'change_request.new_value_hashed': { $ne: true },
+      'change_request.new_value': { $exists: true },
     },
     {
       $unset: {
