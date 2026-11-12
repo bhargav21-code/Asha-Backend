@@ -31,12 +31,17 @@ const userSchema = new mongoose.Schema({
   change_request: {
     type:         { type: String, enum: ['username', 'password'] },
     new_value:    { type: String },
+    new_value_hashed: { type: Boolean, default: false },
     requested_at: { type: Date },
     status:       { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
   },
 
-  otp:         { type: String, select: false },
-  otp_expires: { type: Date,   select: false },
+  otp:              { type: String, select: false },
+  otp_expires:      { type: Date, select: false },
+  otp_attempts:     { type: Number, default: 0, select: false },
+  otp_locked_until: { type: Date, select: false },
+  otp_last_sent_at: { type: Date, select: false },
+  otp_attempt_started_at: { type: Date, select: false },
 }, { timestamps: true });
 
 userSchema.pre('save', async function (next) {
@@ -52,6 +57,16 @@ userSchema.methods.matchPassword = async function (enteredPassword) {
 userSchema.methods.toJSON = function () {
   const obj = this.toObject();
   delete obj.password;
+  delete obj.otp;
+  delete obj.otp_expires;
+  delete obj.otp_attempts;
+  delete obj.otp_locked_until;
+  delete obj.otp_last_sent_at;
+  delete obj.otp_attempt_started_at;
+  if (obj.change_request?.type === 'password') {
+    delete obj.change_request.new_value;
+    delete obj.change_request.new_value_hashed;
+  }
   return obj;
 };
 

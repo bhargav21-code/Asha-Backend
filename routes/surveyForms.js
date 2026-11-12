@@ -1,13 +1,14 @@
 const express = require('express');
-const router  = express.Router();
+const router = express.Router();
 const { getAll, getOne, create, update, remove } = require('../controllers/surveyFormController');
 const { protect } = require('../middleware/auth');
+const asyncHandler = require('../utils/asyncHandler');
 
 router.use(protect);
-router.get('/',     getAll);
-router.post('/',    create);
-router.get('/:id',  getOne);
-router.put('/:id',  update);
-router.delete('/:id', remove);
+router.get('/', asyncHandler(getAll));
+router.post('/', asyncHandler(create));
+router.get('/:id', asyncHandler(getOne));
+router.put('/:id', asyncHandler(update));
+router.delete('/:id', asyncHandler(remove));
 
 module.exports = router;

@@ -3,6 +3,14 @@ const Child = require('../models/Child');
 const { Family, Visit, DailyWorkReport } = require('../models/index');
 const User = require('../models/User');
 
+const redactPasswordChangeValue = (user) => {
+  if (user?.change_request?.type !== 'password') return user;
+  const safeUser = { ...user, change_request: { ...user.change_request } };
+  delete safeUser.change_request.new_value;
+  delete safeUser.change_request.new_value_hashed;
+  return safeUser;
+};
+
 exports.getMetrics = async (req, res) => {
   const [
     totalFamilies,
@@ -75,7 +83,7 @@ exports.getHighRiskList = async (req, res) => {
 
 exports.getAllASHA = async (req, res) => {
   const workers = await User.find({ role: 'ASHA' }).select('-password').lean();
-  res.json({ success: true, data: workers });
+  res.json({ success: true, data: workers.map(redactPasswordChangeValue) });
 };
 
 exports.createASHA = async (req, res) => {
@@ -97,7 +105,8 @@ exports.getDailyReportsDashboard = async (req, res) => {
     // All ASHA workers
     const workerFilter = { role: 'ASHA', active: true };
     if (search) workerFilter.name = { $regex: search, $options: 'i' };
-    const allWorkers = await User.find(workerFilter).select('-password').lean();
+    const workerRecords = await User.find(workerFilter).select('-password').lean();
+    const allWorkers = workerRecords.map(redactPasswordChangeValue);
 
     // Reports for target date
     const reportFilter = { date: { $gte: targetDate, $lt: nextDay } };
@@ -140,7 +149,7 @@ exports.getDailyReportsDashboard = async (req, res) => {
 
     res.json({ success: true, data: { cards, summary, date: targetDate } });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message });
   }
 };
 
@@ -233,6 +242,40 @@ exports.deleteUser = async (req, res) => {
 
 // Get pending change requests (username/password change from ASHA workers)
 exports.getChangeRequests = async (req, res) => {
+  // Completed legacy password requests can retain plaintext values or hashes
+  // whose provenance cannot be verified. Erase those values without changing status.
+  await User.updateMany(
+    {
+      'change_request.type': 'password',
+      'change_request.status': { $in: ['approved', 'rejected'] },
+      'change_request.new_value_hashed': { $ne: true },
+      'change_request.new_value': { $exists: true },
+    },
+    {
+      $unset: {
+        'change_request.new_value': 1,
+        'change_request.new_value_hashed': 1,
+      },
+    }
+  );
+
+  // Legacy pending password requests have no trustworthy hash provenance marker.
+  // Cancel and erase them rather than guessing whether a bcrypt-looking value is a real hash.
+  await User.updateMany(
+    {
+      'change_request.type': 'password',
+      'change_request.status': 'pending',
+      'change_request.new_value_hashed': { $ne: true },
+    },
+    {
+      $set: { 'change_request.status': 'rejected' },
+      $unset: {
+        'change_request.new_value': 1,
+        'change_request.new_value_hashed': 1,
+      },
+    }
+  );
+
   const users = await User.find({ 'change_request.status': 'pending' }).select('-password');
   res.json({ success: true, data: users });
 };
@@ -240,23 +283,62 @@ exports.getChangeRequests = async (req, res) => {
 // Approve / reject an ASHA change request
 exports.handleChangeRequest = async (req, res) => {
   const { id } = req.params;
-  const { action } = req.body; // 'approve' | 'reject'
+  const { action } = req.body;
+
+  if (!['approve', 'reject'].includes(action))
+    return res.status(400).json({ success: false, message: 'action must be approve or reject' });
 
   const user = await User.findById(id).select('+password');
-  if (!user || !user.change_request?.type)
+  const request = user?.change_request;
+  if (!user || request?.status !== 'pending' || !request.type || !request.new_value)
     return res.status(404).json({ success: false, message: 'No pending request found' });
 
-  if (action === 'approve') {
-    if (user.change_request.type === 'username') {
-      user.username = user.change_request.new_value.toLowerCase();
-    } else {
-      user.password = user.change_request.new_value;
+  const filter = {
+    _id: user._id,
+    'change_request.status': 'pending',
+    'change_request.type': request.type,
+    'change_request.new_value': request.new_value,
+    'change_request.requested_at': request.requested_at ?? null,
+  };
+
+  if (action === 'approve' && request.type === 'password') {
+    // Only hashes created by the current request flow carry trusted provenance.
+    // Legacy requests without this marker are cancelled and must be resubmitted.
+    if (request.new_value_hashed !== true || !/^\$2[aby]\$\d{2}\$/.test(request.new_value)) {
+      const cancelled = await User.updateOne(filter, {
+        $set: { 'change_request.status': 'rejected' },
+        $unset: { 'change_request.new_value': 1, 'change_request.new_value_hashed': 1 },
+      });
+      if (!cancelled.matchedCount) return res.status(409).json({ success: false, message: 'Change request is no longer pending' });
+      return res.status(409).json({
+        success: false,
+        message: 'This older password request was cancelled because its hash cannot be verified. Ask the worker to submit the password change again.',
+      });
     }
-    user.change_request.status = 'approved';
-  } else {
-    user.change_request.status = 'rejected';
+
+    const result = await User.updateOne(
+      filter,
+      {
+        $set: { password: request.new_value, 'change_request.status': 'approved' },
+        $unset: { 'change_request.new_value': 1, 'change_request.new_value_hashed': 1 },
+      }
+    );
+    if (!result.matchedCount) return res.status(409).json({ success: false, message: 'Change request is no longer pending' });
+    return res.json({ success: true, message: 'Change request approved' });
   }
 
-  await user.save();
+  const update = action === 'approve'
+    ? { $set: { username: request.new_value.toLowerCase(), 'change_request.status': 'approved' }, $unset: { 'change_request.new_value': 1, 'change_request.new_value_hashed': 1 } }
+    : { $set: { 'change_request.status': 'rejected' }, $unset: { 'change_request.new_value': 1, 'change_request.new_value_hashed': 1 } };
+
+  let result;
+  try {
+    result = await User.updateOne(filter, update);
+  } catch (err) {
+    if (err.code === 11000)
+      return res.status(409).json({ success: false, message: 'Username is already taken' });
+    throw err;
+  }
+  if (!result.matchedCount) return res.status(409).json({ success: false, message: 'Change request is no longer pending' });
   res.json({ success: true, message: `Change request ${action}d` });
 };

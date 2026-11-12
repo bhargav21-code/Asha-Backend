@@ -36,43 +36,43 @@ const womanSchema = new mongoose.Schema({
     next_date: { type: Date },
   },
   active: { type: Boolean, default: true },
-}, { timestamps: true });
+}, { timestamps: true, optimisticConcurrency: true });
 
 // Compound indexes for performance
 womanSchema.index({ high_risk: 1, village: 1 });
 womanSchema.index({ village: 1, pregnancy_status: 1 });
 
+function numericMetric(value) {
+  if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function isBelowThreshold(value, threshold) {
+  const number = numericMetric(value);
+  return number !== null && number < threshold;
+}
+
+function isAboveThreshold(value, threshold) {
+  const number = numericMetric(value);
+  return number !== null && number > threshold;
+}
+
+function calculateHighRisk(metrics = {}) {
+  return (
+    isBelowThreshold(metrics.hemoglobin, 11.0) ||
+    isAboveThreshold(metrics.bp_sys, 140) ||
+    isAboveThreshold(metrics.bp_dia, 90) ||
+    metrics.diabetes === true ||
+    metrics.thyroid === true
+  );
+}
+
 // AI High-Risk Auto-Flag Hook
 womanSchema.pre('save', function (next) {
-  const m = this.medical_metrics;
-  if (!m) return next();
-
-  const isHighRisk =
-    (m.hemoglobin !== undefined && m.hemoglobin < 11.0) ||
-    (m.bp_sys !== undefined && m.bp_sys > 140) ||
-    (m.bp_dia !== undefined && m.bp_dia > 90) ||
-    m.diabetes === true ||
-    m.thyroid === true;
-
-  this.high_risk = isHighRisk;
+  this.high_risk = calculateHighRisk(this.medical_metrics || {});
   next();
 });
 
-// Also run on findOneAndUpdate
-womanSchema.pre('findOneAndUpdate', function (next) {
-  const update = this.getUpdate();
-  const m = update?.medical_metrics || update?.$set?.medical_metrics;
-  if (!m) return next();
-
-  const isHighRisk =
-    (m.hemoglobin !== undefined && m.hemoglobin < 11.0) ||
-    (m.bp_sys !== undefined && m.bp_sys > 140) ||
-    (m.bp_dia !== undefined && m.bp_dia > 90) ||
-    m.diabetes === true ||
-    m.thyroid === true;
-
-  this.set({ high_risk: isHighRisk });
-  next();
-});
 
 module.exports = mongoose.model('Woman', womanSchema);

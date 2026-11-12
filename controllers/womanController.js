@@ -1,4 +1,15 @@
 const Woman = require('../models/Woman');
+const safeUpdate = require('../utils/safeUpdate');
+const asyncHandler = require('../utils/asyncHandler');
+
+const womanUpdateFields = {
+  name: true, age: true, mobile: true, address: true, village: true, taluka: true, district: true,
+  pregnancy_status: true, pregnancy_month: true, edd: true, lmp: true,
+  medical_metrics: { weight: true, bp_sys: true, bp_dia: true, hemoglobin: true, diabetes: true, thyroid: true },
+  gov_schemes: { mamta_card: true, jsy: true },
+  checkups: { last_date: true, next_date: true },
+  active: true,
+};
 
 exports.getAll = async (req, res) => {
   const { village, high_risk, pregnancy_status, page = 1, limit = 20 } = req.query;
@@ -21,24 +32,40 @@ exports.getAll = async (req, res) => {
   res.json({ success: true, data: women, total, page: Number(page), pages: Math.ceil(total / limit) });
 };
 
-exports.getOne = async (req, res) => {
-  const woman = await Woman.findById(req.params.id).lean();
+exports.getOne = asyncHandler(async (req, res) => {
+  const woman = await Woman.findOne(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }).lean();
   if (!woman) return res.status(404).json({ success: false, message: 'Record not found' });
   res.json({ success: true, data: woman });
-};
+});
 
 exports.create = async (req, res) => {
-  const woman = await Woman.create({ ...req.body, asha_id: req.user._id });
+  const createData = { ...req.body };
+  delete createData.high_risk; // Derived from medical_metrics; never accept a client-supplied flag.
+  const woman = await Woman.create({ ...createData, asha_id: req.user._id });
   res.status(201).json({ success: true, data: woman });
 };
 
-exports.update = async (req, res) => {
-  const woman = await Woman.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+exports.update = asyncHandler(async (req, res) => {
+  const update = safeUpdate(req.body, womanUpdateFields);
+  if (!update) return res.status(400).json({ success: false, message: 'Invalid update fields' });
+  const woman = await Woman.findOne(req.user.role === 'Admin'
+    ? { _id: req.params.id }
+    : { _id: req.params.id, asha_id: req.user._id });
   if (!woman) return res.status(404).json({ success: false, message: 'Record not found' });
-  res.json({ success: true, data: woman });
-};
 
-exports.remove = async (req, res) => {
-  await Woman.findByIdAndUpdate(req.params.id, { active: false });
+  woman.set(update);
+  try {
+    await woman.save();
+  } catch (err) {
+    if (err.name === 'VersionError')
+      return res.status(409).json({ success: false, message: 'Record changed concurrently. Reload and retry the update.' });
+    throw err;
+  }
+  res.json({ success: true, data: woman });
+});
+
+exports.remove = asyncHandler(async (req, res) => {
+  const woman = await Woman.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, { active: false });
+  if (!woman) return res.status(404).json({ success: false, message: 'Record not found' });
   res.json({ success: true, message: 'Record deactivated' });
-};
+});

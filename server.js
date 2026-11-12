@@ -5,6 +5,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const cron = require('node-cron');
+const { clientIpKeyGenerator } = require('./middleware/rateLimiters');
 require('dotenv').config();
 
 const authRoutes = require('./routes/auth');
@@ -21,14 +22,46 @@ const followUpRoutes   = require('./routes/followUps');
 
 const app = express();
 
+// Render traffic can pass through Cloudflare and Render load balancers.
+// Do not guess the forwarding depth: set TRUST_PROXY_HOPS only after measuring
+// the X-Forwarded-For chain on the deployed service. Refuse production startup
+// when it is missing or invalid so rate limits cannot silently share one proxy IP.
+const trustProxyHopsRaw = process.env.TRUST_PROXY_HOPS;
+const trustProxyHops = trustProxyHopsRaw === undefined
+  ? (['development', 'test'].includes(process.env.NODE_ENV) ? 0 : NaN)
+  : Number(trustProxyHopsRaw);
+
+if (!Number.isInteger(trustProxyHops) || trustProxyHops < 0) {
+  throw new Error('Set TRUST_PROXY_HOPS to the verified number of trusted reverse-proxy hops.');
+}
+
+app.set('trust proxy', trustProxyHops);
+
 // Security & middleware
 app.use(helmet());
-app.use(cors({ origin: process.env.CLIENT_URL || '*', credentials: true }));
+const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
+  .split(',')
+  .map(origin => origin.trim())
+  .filter(Boolean);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(null, false);
+  },
+  credentials: true,
+}));
 app.use(express.json({ limit: '10mb' }));
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 // Rate limiting
-const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200 });
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 200,
+  keyGenerator: clientIpKeyGenerator,
+});
 app.use('/api/', limiter);
 
 // Routes
@@ -49,10 +82,18 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Dat
 
 // Global error handler
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(err.status || 500).json({
+  console.error(err.stack || err);
+
+  const statusCode = err.status || 500;
+
+  const message =
+    statusCode >= 500 && process.env.NODE_ENV === 'production'
+      ? 'Internal Server Error'
+      : (err.message || 'Internal Server Error');
+
+  res.status(statusCode).json({
     success: false,
-    message: err.message || 'Internal Server Error',
+    message,
   });
 });
 

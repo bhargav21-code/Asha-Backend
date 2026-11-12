@@ -1,4 +1,17 @@
 const FollowUp = require('../models/FollowUp');
+const safeUpdate = require('../utils/safeUpdate');
+
+const visitHistoryFields = {
+  visit_date: true, visit_type: true, health_assessment: true,
+  observations: true, actions_taken: true, referral_details: true, follow_up_required: true,
+};
+const followUpUpdateFields = {
+  patient_name: true, age: true, gender: true, village: true, mobile_number: true,
+  disease_name: true, disease_category: true, description: true, symptoms: true,
+  current_health_status: true, last_visit_date: true, next_followup_date: true,
+  medicine_prescribed: true, treatment_notes: true, referral_information: true,
+  hospital_visit_status: true, status: true, priority: true, active: true,
+};
 
 exports.getAll = async (req, res) => {
   try {
@@ -13,17 +26,17 @@ exports.getAll = async (req, res) => {
     const records = await FollowUp.find(filter).sort({ next_followup_date: 1 }).lean();
     res.json({ success: true, data: records });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message });
   }
 };
 
 exports.getOne = async (req, res) => {
   try {
-    const record = await FollowUp.findById(req.params.id).lean();
+    const record = await FollowUp.findOne(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }).lean();
     if (!record) return res.status(404).json({ success: false, message: 'Not found' });
     res.json({ success: true, data: record });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message });
   }
 };
 
@@ -32,30 +45,34 @@ exports.create = async (req, res) => {
     const record = await FollowUp.create({ ...req.body, asha_id: req.user._id });
     res.status(201).json({ success: true, data: record });
   } catch (err) {
-    res.status(400).json({ success: false, message: err.message });
+    res.status(400).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Invalid request' : err.message });
   }
 };
 
 exports.update = async (req, res) => {
   try {
-    const record = await FollowUp.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    const update = safeUpdate(req.body, followUpUpdateFields);
+    if (!update) return res.status(400).json({ success: false, message: 'Invalid update fields' });
+    const record = await FollowUp.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, update, { new: true, runValidators: true });
     if (!record) return res.status(404).json({ success: false, message: 'Not found' });
     res.json({ success: true, data: record });
   } catch (err) {
-    res.status(400).json({ success: false, message: err.message });
+    res.status(400).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Invalid request' : err.message });
   }
 };
 
 exports.addVisitHistory = async (req, res) => {
   try {
-    const record = await FollowUp.findById(req.params.id);
+    const record = await FollowUp.findOne(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id });
     if (!record) return res.status(404).json({ success: false, message: 'Not found' });
-    record.visit_history.push(req.body);
-    record.last_visit_date = req.body.visit_date || new Date();
+    const visit = safeUpdate(req.body, visitHistoryFields);
+    if (!visit) return res.status(400).json({ success: false, message: 'Invalid visit fields' });
+    record.visit_history.push(visit);
+    record.last_visit_date = visit.visit_date || new Date();
     await record.save();
     res.status(201).json({ success: true, data: record });
   } catch (err) {
-    res.status(400).json({ success: false, message: err.message });
+    res.status(400).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Invalid request' : err.message });
   }
 };
 
@@ -77,15 +94,16 @@ exports.getCalendar = async (req, res) => {
       .lean();
     res.json({ success: true, data: records });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message });
   }
 };
 
 exports.remove = async (req, res) => {
   try {
-    await FollowUp.findByIdAndUpdate(req.params.id, { active: false });
+    const record = await FollowUp.findOneAndUpdate(req.user.role === 'Admin' ? { _id: req.params.id } : { _id: req.params.id, asha_id: req.user._id }, { active: false });
+    if (!record) return res.status(404).json({ success: false, message: 'Not found' });
     res.json({ success: true, message: 'Deleted' });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message });
   }
 };
