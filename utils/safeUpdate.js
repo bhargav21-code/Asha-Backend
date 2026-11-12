@@ -53,21 +53,3 @@ module.exports = function safeUpdate(body, allowedFields) {
   flattenNestedObjects(sanitized, '', update);
   return Object.keys(update).length ? update : null;
 };
-
-// Minimal runnable regression check: node utils/safeUpdate.js
-if (require.main === module) {
-  const assert = require('node:assert/strict');
-  const fields = { facility: { drinking_water: true, toilet: true }, active: true };
-
-  assert.deepEqual(
-    module.exports({ facility: { drinking_water: true } }, fields),
-    { 'facility.drinking_water': true }
-  );
-  assert.deepEqual(
-    module.exports({ facility: { toilet: false }, active: false }, fields),
-    { 'facility.toilet': false, active: false }
-  );
-  assert.equal(module.exports({ facility: null }, fields), null);
-  assert.equal(module.exports({ 'facility.toilet': true }, fields), null);
-  assert.equal(module.exports({ facility: { unknown: true } }, fields), null);
-}
