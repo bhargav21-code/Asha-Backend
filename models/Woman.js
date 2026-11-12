@@ -42,37 +42,64 @@ const womanSchema = new mongoose.Schema({
 womanSchema.index({ high_risk: 1, village: 1 });
 womanSchema.index({ village: 1, pregnancy_status: 1 });
 
+function isBelowThreshold(value, threshold) {
+  return value !== null && value !== undefined && Number.isFinite(Number(value)) && Number(value) < threshold;
+}
+
+function isAboveThreshold(value, threshold) {
+  return value !== null && value !== undefined && Number.isFinite(Number(value)) && Number(value) > threshold;
+}
+
+function calculateHighRisk(metrics = {}) {
+  return (
+    isBelowThreshold(metrics.hemoglobin, 11.0) ||
+    isAboveThreshold(metrics.bp_sys, 140) ||
+    isAboveThreshold(metrics.bp_dia, 90) ||
+    metrics.diabetes === true ||
+    metrics.diabetes === 'true' ||
+    metrics.thyroid === true ||
+    metrics.thyroid === 'true'
+  );
+}
+
 // AI High-Risk Auto-Flag Hook
 womanSchema.pre('save', function (next) {
-  const m = this.medical_metrics;
-  if (!m) return next();
-
-  const isHighRisk =
-    (m.hemoglobin !== undefined && m.hemoglobin < 11.0) ||
-    (m.bp_sys !== undefined && m.bp_sys > 140) ||
-    (m.bp_dia !== undefined && m.bp_dia > 90) ||
-    m.diabetes === true ||
-    m.thyroid === true;
-
-  this.high_risk = isHighRisk;
+  this.high_risk = calculateHighRisk(this.medical_metrics || {});
   next();
 });
 
-// Also run on findOneAndUpdate
-womanSchema.pre('findOneAndUpdate', function (next) {
-  const update = this.getUpdate();
-  const m = update?.medical_metrics || update?.$set?.medical_metrics;
-  if (!m) return next();
+// Also run on findOneAndUpdate. Resolve partial/dotted metric updates against
+// the persisted metrics so one changed measurement cannot erase another's risk.
+womanSchema.pre('findOneAndUpdate', async function () {
+  const update = this.getUpdate() || {};
+  const sources = [update, update.$set || {}];
+  const metricChanges = {};
+  let hasMetricChanges = false;
 
-  const isHighRisk =
-    (m.hemoglobin !== undefined && m.hemoglobin < 11.0) ||
-    (m.bp_sys !== undefined && m.bp_sys > 140) ||
-    (m.bp_dia !== undefined && m.bp_dia > 90) ||
-    m.diabetes === true ||
-    m.thyroid === true;
+  for (const source of sources) {
+    if (source.medical_metrics && typeof source.medical_metrics === 'object' && !Array.isArray(source.medical_metrics)) {
+      Object.assign(metricChanges, source.medical_metrics);
+      hasMetricChanges = true;
+    }
 
-  this.set({ high_risk: isHighRisk });
-  next();
+    for (const [path, value] of Object.entries(source)) {
+      if (path.startsWith('medical_metrics.')) {
+        metricChanges[path.slice('medical_metrics.'.length)] = value;
+        hasMetricChanges = true;
+      }
+    }
+  }
+
+  if (!hasMetricChanges) return;
+
+  const current = await this.model.findOne(this.getQuery())
+    .select('medical_metrics')
+    .session(this.getOptions().session || null)
+    .lean();
+  if (!current) return;
+
+  const resultingMetrics = { ...(current.medical_metrics || {}), ...metricChanges };
+  this.set({ high_risk: calculateHighRisk(resultingMetrics) });
 });
 
 module.exports = mongoose.model('Woman', womanSchema);
