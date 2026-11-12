@@ -37,6 +37,8 @@ assert.deepEqual(
 assert.equal(safeUpdate({ facility: null }, fields), null);
 assert.equal(safeUpdate({ facility: { unknown: true } }, fields), null);
 assert.equal(safeUpdate({ 'facility.toilet': true }, fields), null);
+assert.equal(safeUpdate(JSON.parse('{"$set":{"active":true}}'), fields), null);
+assert.equal(safeUpdate(JSON.parse('{"__proto__":{"polluted":true}}'), fields), null);
 assert.equal(safeUpdate({ facility: {} }, fields), null);
 
 // Scalar fields and null leaf values remain supported.
