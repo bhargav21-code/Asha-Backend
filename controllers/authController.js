@@ -220,9 +220,10 @@ exports.forgotPassword = async (req, res) => {
         ],
       };
 
+      const otpDigest = hashOTP(otp);
       const update = {
         $set: {
-          otp: hashOTP(otp),
+          otp: otpDigest,
           otp_expires: expires,
           otp_last_sent_at: now,
         },
@@ -243,7 +244,26 @@ exports.forgotPassword = async (req, res) => {
         return;
       }
 
-      await sendOTPEmail(email, otp, user.name);
+      try {
+        await sendOTPEmail(email, otp, user.name);
+      } catch (sendError) {
+        // Clear only this request's reservation; never erase a newer OTP.
+        await User.updateOne(
+          {
+            _id: user._id,
+            otp: otpDigest,
+            otp_last_sent_at: now,
+          },
+          {
+            $unset: {
+              otp: 1,
+              otp_expires: 1,
+              otp_last_sent_at: 1,
+            },
+          }
+        );
+        throw sendError;
+      }
     } catch (err) {
       console.error('Forgot-password OTP processing failed:', err);
     }
