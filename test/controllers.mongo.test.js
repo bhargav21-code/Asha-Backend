@@ -4,11 +4,13 @@ const Anganwadi = require('../models/Anganwadi');
 const Woman = require('../models/Woman');
 const Child = require('../models/Child');
 const FollowUp = require('../models/FollowUp');
+const User = require('../models/User');
 const { Family, Visit } = require('../models');
 const anganwadiController = require('../controllers/anganwadiController');
 const crudController = require('../controllers/crudController');
 const womanController = require('../controllers/womanController');
 const followUpController = require('../controllers/followUpController');
+const adminController = require('../controllers/adminController');
 
 function responseRecorder() {
   return {
@@ -38,6 +40,7 @@ async function run() {
     women: [],
     children: [],
     followUps: [],
+    users: [],
   };
 
   try {
@@ -327,6 +330,43 @@ async function run() {
     assert.equal(refreshedWoman.medical_metrics.hemoglobin, 10);
     assert.equal(refreshedWoman.high_risk, true);
 
+    // Completed password cleanup only updates records that still contain a value.
+    const userSuffix = new mongoose.Types.ObjectId().toString();
+    const cleanupTarget = await User.create({
+      name: 'Cleanup Target',
+      username: `cleanup-target-${userSuffix}`,
+      change_request: { type: 'password', status: 'approved', new_value: 'legacy-value' },
+    });
+    fixtures.users.push(cleanupTarget._id);
+    const alreadyCleaned = await User.create({
+      name: 'Already Cleaned',
+      username: `already-cleaned-${userSuffix}`,
+      change_request: { type: 'password', status: 'approved' },
+    });
+    fixtures.users.push(alreadyCleaned._id);
+    const legacyPending = await User.create({
+      name: 'Legacy Pending',
+      username: `legacy-pending-${userSuffix}`,
+      change_request: { type: 'password', status: 'pending', new_value: 'unverified-value' },
+    });
+    fixtures.users.push(legacyPending._id);
+    const alreadyCleanedUpdatedAt = alreadyCleaned.updatedAt.getTime();
+
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const cleanupResponse = await invoke(adminController.getChangeRequests, {
+      user: { _id: ownerId, role: 'Admin' },
+      params: {},
+      body: {},
+    });
+    assert.equal(cleanupResponse.statusCode, 200);
+    const cleanedTarget = await User.findById(cleanupTarget._id);
+    const unchangedCleaned = await User.findById(alreadyCleaned._id);
+    const cancelledPending = await User.findById(legacyPending._id);
+    assert.equal(cleanedTarget.change_request.new_value, undefined);
+    assert.equal(unchangedCleaned.updatedAt.getTime(), alreadyCleanedUpdatedAt);
+    assert.equal(cancelledPending.change_request.status, 'rejected');
+    assert.equal(cancelledPending.change_request.new_value, undefined);
+
     // Follow-Up: generic updates cannot replace history; append preserves prior IDs.
     const followUp = await FollowUp.create({
       asha_id: ownerId,
@@ -368,6 +408,7 @@ async function run() {
     if (fixtures.women.length) await Woman.deleteMany({ _id: { $in: fixtures.women } });
     if (fixtures.children.length) await Child.deleteMany({ _id: { $in: fixtures.children } });
     if (fixtures.followUps.length) await FollowUp.deleteMany({ _id: { $in: fixtures.followUps } });
+    if (fixtures.users.length) await User.deleteMany({ _id: { $in: fixtures.users } });
     await mongoose.disconnect();
   }
 }
