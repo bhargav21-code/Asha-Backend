@@ -1,9 +1,14 @@
+const mongoose = require('mongoose');
 const Anganwadi = require('../models/Anganwadi');
 const safeUpdate = require('../utils/safeUpdate');
 
 const anganwadiChildFields = {
   child_name: true, age: true, gender: true, weight: true, height: true,
   nutrition_status: true, vaccination_status: true, present_today: true,
+};
+const anganwadiChildUpdateFields = {
+  child_name: true, age: true, gender: true, weight: true, height: true,
+  nutrition_status: true, vaccination_status: true,
 };
 const anganwadiUpdateFields = {
   district: true, taluka: true, village: true, anganwadi_name: true,
@@ -40,7 +45,12 @@ exports.create = async (req, res) => {
     const record = await Anganwadi.create({ ...req.body, asha_id: req.user._id });
     res.status(201).json({ success: true, data: record });
   } catch (err) {
-    res.status(400).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Invalid request' : err.message });
+    const isInputError = err.name === 'ValidationError' || err.name === 'CastError';
+    const status = isInputError ? 400 : 500;
+    res.status(status).json({
+      success: false,
+      message: process.env.NODE_ENV === 'production' && status === 500 ? 'Internal Server Error' : err.message,
+    });
   }
 };
 
@@ -67,6 +77,32 @@ exports.addChild = async (req, res) => {
     res.status(201).json({ success: true, data: record });
   } catch (err) {
     res.status(400).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Invalid request' : err.message });
+  }
+};
+
+exports.updateChild = async (req, res) => {
+  try {
+    const update = safeUpdate(req.body, anganwadiChildUpdateFields);
+    if (!update) return res.status(400).json({ success: false, message: 'Invalid child fields' });
+    if (!mongoose.isValidObjectId(req.params.childId))
+      return res.status(404).json({ success: false, message: 'Child not found' });
+
+    const childUpdate = Object.fromEntries(
+      Object.entries(update).map(([field, value]) => [`children.$.${field}`, value])
+    );
+    const filter = req.user.role === 'Admin'
+      ? { _id: req.params.id, 'children._id': req.params.childId }
+      : { _id: req.params.id, asha_id: req.user._id, 'children._id': req.params.childId };
+    const record = await Anganwadi.findOneAndUpdate(filter, { $set: childUpdate }, { new: true, runValidators: true });
+    if (!record) return res.status(404).json({ success: false, message: 'Anganwadi centre or child not found' });
+    res.json({ success: true, data: record });
+  } catch (err) {
+    const isInputError = err.name === 'ValidationError' || err.name === 'CastError';
+    const status = isInputError ? 400 : 500;
+    res.status(status).json({
+      success: false,
+      message: process.env.NODE_ENV === 'production' && status === 500 ? 'Internal Server Error' : err.message,
+    });
   }
 };
 
