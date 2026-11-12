@@ -36,7 +36,7 @@ const womanSchema = new mongoose.Schema({
     next_date: { type: Date },
   },
   active: { type: Boolean, default: true },
-}, { timestamps: true });
+}, { timestamps: true, optimisticConcurrency: true });
 
 // Compound indexes for performance
 womanSchema.index({ high_risk: 1, village: 1 });
@@ -64,9 +64,7 @@ function calculateHighRisk(metrics = {}) {
     isAboveThreshold(metrics.bp_sys, 140) ||
     isAboveThreshold(metrics.bp_dia, 90) ||
     metrics.diabetes === true ||
-    metrics.diabetes === 'true' ||
-    metrics.thyroid === true ||
-    metrics.thyroid === 'true'
+    metrics.thyroid === true
   );
 }
 
@@ -76,38 +74,5 @@ womanSchema.pre('save', function (next) {
   next();
 });
 
-// Also run on findOneAndUpdate. Resolve partial/dotted metric updates against
-// the persisted metrics so one changed measurement cannot erase another's risk.
-womanSchema.pre('findOneAndUpdate', async function () {
-  const update = this.getUpdate() || {};
-  const sources = [update, update.$set || {}];
-  const metricChanges = {};
-  let hasMetricChanges = false;
-
-  for (const source of sources) {
-    if (source.medical_metrics && typeof source.medical_metrics === 'object' && !Array.isArray(source.medical_metrics)) {
-      Object.assign(metricChanges, source.medical_metrics);
-      hasMetricChanges = true;
-    }
-
-    for (const [path, value] of Object.entries(source)) {
-      if (path.startsWith('medical_metrics.')) {
-        metricChanges[path.slice('medical_metrics.'.length)] = value;
-        hasMetricChanges = true;
-      }
-    }
-  }
-
-  if (!hasMetricChanges) return;
-
-  const current = await this.model.findOne(this.getQuery())
-    .select('medical_metrics')
-    .session(this.getOptions().session || null)
-    .lean();
-  if (!current) return;
-
-  const resultingMetrics = { ...(current.medical_metrics || {}), ...metricChanges };
-  this.set({ high_risk: calculateHighRisk(resultingMetrics) });
-});
 
 module.exports = mongoose.model('Woman', womanSchema);
