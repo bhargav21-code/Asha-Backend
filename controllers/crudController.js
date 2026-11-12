@@ -13,6 +13,10 @@ const childUpdateFields = {
     bcg: true, opv0: true, hepB: true, opv1: true, penta1: true, mr: true, vitamin_a: true,
   }, nutrition_status: true, active: true,
 };
+const familyMemberUpdateFields = {
+  name: true, age: true, gender: true, relation: true,
+  conditions: { bp: true, diabetes: true, tb: true, anemia: true },
+};
 const familyUpdateFields = {
   head_name: true, mobile: true, village: true, taluka: true, district: true, address: true, active: true,
   conditions: { toilet: true, water_source: true, electricity: true, lpg: true },
@@ -225,6 +229,24 @@ exports.updateFamily = asyncHandler(async (req, res) => {
   if (!family) return res.status(404).json({ success: false, message: 'Not found' });
   res.json({ success: true, data: family });
 });
+
+exports.updateFamilyMember = asyncHandler(async (req, res) => {
+  const update = safeUpdate(req.body, familyMemberUpdateFields);
+  if (!update) return res.status(400).json({ success: false, message: 'Invalid member fields' });
+  if (!mongoose.isValidObjectId(req.params.memberId))
+    return res.status(404).json({ success: false, message: 'Family member not found' });
+
+  const memberUpdate = Object.fromEntries(
+    Object.entries(update).map(([field, value]) => [`members.$.${field}`, value])
+  );
+  const filter = req.user.role === 'Admin'
+    ? { _id: req.params.id, 'members._id': req.params.memberId }
+    : { _id: req.params.id, asha_id: req.user._id, 'members._id': req.params.memberId };
+  const family = await Family.findOneAndUpdate(filter, { $set: memberUpdate }, { new: true, runValidators: true });
+  if (!family) return res.status(404).json({ success: false, message: 'Family or member not found' });
+  res.json({ success: true, data: family });
+});
+
 
 // ─── REPORTS ──────────────────────────────────────────────
 exports.getReports = async (req, res) => {
