@@ -361,7 +361,7 @@ async function run() {
     assert.equal(historyAfterUpdate.visit_history[0]._id.toString(), originalVisitId);
     assert.equal(historyAfterUpdate.visit_history[1].observations, 'Appended entry');
 
-    process.stdout.write('MongoDB controller integration checks passed\\n');
+    process.stdout.write('MongoDB controller integration checks passed\n');
   } finally {
     if (fixtures.anganwadi.length) await Anganwadi.deleteMany({ _id: { $in: fixtures.anganwadi } });
     if (fixtures.families.length) await Family.deleteMany({ _id: { $in: fixtures.families } });
@@ -373,6 +373,6 @@ async function run() {
 }
 
 run().catch(error => {
-  process.stderr.write(`${error.stack || error}\\n`);
+  process.stderr.write(`${error.stack || error}\n`);
   process.exitCode = 1;
 });
