@@ -5,6 +5,13 @@ const User = require('../models/User');
 
 const { sendOTPEmail } = require('../utils/emailService');
 
+const OTP_ATTEMPT_RESERVATION_TIMEOUT_MS = 2 * 60 * 1000;
+const attemptReservationIsActive = (startedAt, now) =>
+  startedAt && startedAt > new Date(now.getTime() - OTP_ATTEMPT_RESERVATION_TIMEOUT_MS);
+const staleAttemptReservationFilter = (startedAt, staleCutoff) => startedAt
+  ? { otp_attempt_started_at: { $lte: staleCutoff } }
+  : { otp_attempt_started_at: { $in: [null] } };
+
 const generateOTP = () => randomInt(100000, 1000000).toString();
 const hashOTP = (otp) => {
   if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET is required to protect OTPs');
@@ -151,31 +158,33 @@ exports.forgotPassword = async (req, res) => {
   setImmediate(async () => {
     try {
       const user = await User.findOne({ email }).select(
-        '+otp_locked_until +otp_attempts +otp_last_sent_at'
+        '+otp_locked_until +otp_attempts +otp_last_sent_at +otp_attempt_started_at'
       );
 
       const now = new Date();
       const cooldownCutoff = new Date(now.getTime() - 60 * 1000);
+      const staleAttemptCutoff = new Date(now.getTime() - OTP_ATTEMPT_RESERVATION_TIMEOUT_MS);
 
       if (!user) {
         return;
       }
 
-      // Recover safely if the process stopped after reserving the fifth attempt
-      // but before the normal mismatch handler could write the lockout.
-      if (
-        Number(user.otp_attempts || 0) >= 5 &&
-        !user.otp_locked_until
-      ) {
+      // Never mistake a live password-reset request for a crashed process.
+      if (attemptReservationIsActive(user.otp_attempt_started_at, now)) return;
+
+      // Recover only an exhausted reservation that is missing or older than the
+      // processing timeout; otp_attempts === 5 alone does not prove abandonment.
+      if (Number(user.otp_attempts || 0) >= 5 && !user.otp_locked_until) {
         await User.updateOne(
           {
             _id: user._id,
             otp_attempts: { $gte: 5 },
             otp_locked_until: { $exists: false },
+            ...staleAttemptReservationFilter(user.otp_attempt_started_at, staleAttemptCutoff),
           },
           {
             $set: { otp_locked_until: new Date(now.getTime() + 15 * 60 * 1000) },
-            $unset: { otp: 1, otp_expires: 1 },
+            $unset: { otp: 1, otp_expires: 1, otp_attempt_started_at: 1 },
           }
         );
         return;
@@ -217,6 +226,7 @@ exports.forgotPassword = async (req, res) => {
               { otp_last_sent_at: { $lte: cooldownCutoff } },
             ],
           },
+          staleAttemptReservationFilter(user.otp_attempt_started_at, staleAttemptCutoff),
         ],
       };
 
@@ -229,6 +239,7 @@ exports.forgotPassword = async (req, res) => {
         },
         $unset: {
           otp_locked_until: 1,
+          otp_attempt_started_at: 1,
         },
       };
 
@@ -259,6 +270,7 @@ exports.forgotPassword = async (req, res) => {
               otp: 1,
               otp_expires: 1,
               otp_last_sent_at: 1,
+              otp_attempt_started_at: 1,
             },
           }
         );
@@ -280,27 +292,30 @@ exports.verifyOTP = async (req, res) => {
   if (typeof otp !== 'string')
     return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
 
-  const user = await User.findOne({ email }).select('+otp +otp_expires +otp_attempts +otp_locked_until');
+  const user = await User.findOne({ email }).select('+otp +otp_expires +otp_attempts +otp_locked_until +otp_attempt_started_at');
   const now = new Date();
+  const staleAttemptCutoff = new Date(now.getTime() - OTP_ATTEMPT_RESERVATION_TIMEOUT_MS);
   if (!user) {
     return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
   }
 
-  // Repair an exhausted attempt budget if a previous process stopped between
-  // incrementing the fifth attempt and recording its lockout.
+  // Recover only a missing or expired reservation. A recent reservation
+  // means another verification is still hashing its successful reset.
   if (
     Number(user.otp_attempts || 0) >= 5 &&
-    !user.otp_locked_until
+    !user.otp_locked_until &&
+    !attemptReservationIsActive(user.otp_attempt_started_at, now)
   ) {
     await User.updateOne(
       {
         _id: user._id,
         otp_attempts: { $gte: 5 },
         otp_locked_until: { $exists: false },
+        ...staleAttemptReservationFilter(user.otp_attempt_started_at, staleAttemptCutoff),
       },
       {
         $set: { otp_locked_until: new Date(now.getTime() + 15 * 60 * 1000) },
-        $unset: { otp: 1, otp_expires: 1 },
+        $unset: { otp: 1, otp_expires: 1, otp_attempt_started_at: 1 },
       }
     );
     return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
@@ -321,25 +336,33 @@ exports.verifyOTP = async (req, res) => {
       $and: [
         { $or: [{ otp_locked_until: { $exists: false } }, { otp_locked_until: { $lte: now } }] },
         { $or: [{ otp_attempts: { $lt: 5 } }, { otp_attempts: { $exists: false } }] },
+        staleAttemptReservationFilter(user.otp_attempt_started_at, staleAttemptCutoff),
       ],
     },
-    { $inc: { otp_attempts: 1 } },
+    {
+      $inc: { otp_attempts: 1 },
+      $set: { otp_attempt_started_at: now },
+    },
     { new: true }
-  ).select('+otp +otp_attempts +otp_expires');
+  ).select('+otp +otp_attempts +otp_expires +otp_attempt_started_at');
 
   if (!reservation) {
     return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
   }
 
   if (!otpMatches(reservation.otp, otp)) {
+    const reservationFilter = {
+      _id: reservation._id,
+      otp: reservation.otp,
+      otp_attempt_started_at: now,
+    };
     if (reservation.otp_attempts >= 5) {
-      await User.updateOne(
-        { _id: reservation._id, otp_attempts: { $gte: 5 } },
-        {
-          $unset: { otp: 1, otp_expires: 1 },
-          $set: { otp_locked_until: new Date(Date.now() + 15 * 60 * 1000) },
-        }
-      );
+      await User.updateOne(reservationFilter, {
+        $unset: { otp: 1, otp_expires: 1, otp_attempt_started_at: 1 },
+        $set: { otp_locked_until: new Date(Date.now() + 15 * 60 * 1000) },
+      });
+    } else {
+      await User.updateOne(reservationFilter, { $unset: { otp_attempt_started_at: 1 } });
     }
     return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
   }
@@ -352,11 +375,12 @@ exports.verifyOTP = async (req, res) => {
       _id: reservation._id,
       otp: reservation.otp,
       otp_attempts: { $lte: 5 },
+      otp_attempt_started_at: now,
       $or: [{ otp_locked_until: { $exists: false } }, { otp_locked_until: { $lte: new Date() } }],
     },
     {
       $set: { password: passwordHash, otp_attempts: 0 },
-      $unset: { otp: 1, otp_expires: 1, otp_locked_until: 1 },
+      $unset: { otp: 1, otp_expires: 1, otp_locked_until: 1, otp_attempt_started_at: 1 },
     }
   );
 
